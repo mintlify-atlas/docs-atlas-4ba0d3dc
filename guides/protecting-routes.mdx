@@ -1,7 +1,7 @@
 ---
-title: "Protect Remix Routes with AuthKit Authentication"
+title: "Protect Your Remix Routes with AuthKit Authentication"
 sidebarTitle: "Protecting Routes"
-description: "Use authkitLoader with ensureSignedIn to redirect unauthenticated users to WorkOS AuthKit, and access user data like role, permissions, and organization in your loaders."
+description: "Use authkitLoader to protect Remix routes, redirect unauthenticated users, and access auth data like role, permissions, and organization in your loaders."
 ---
 
 `authkitLoader` is the primary way to bring authentication into your Remix routes. It automatically reads the session cookie, validates the access token, refreshes it when expired, and writes an updated cookie on the response. You can use it in two modes: optional authentication, where the page is visible to everyone but shows richer content for signed-in users, and required authentication, where unauthenticated visitors are redirected straight to WorkOS AuthKit.

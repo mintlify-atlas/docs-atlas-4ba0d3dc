@@ -1,7 +1,7 @@
 ---
-title: "Multi-Tenant Organization Switching with AuthKit"
+title: "Multi-Tenant Organization Switching in AuthKit Remix"
 sidebarTitle: "Organizations"
-description: "Switch the active WorkOS organization in a user session using switchToOrganization, with automatic re-authentication for SSO and MFA enrollment requirements."
+description: "Use switchToOrganization in AuthKit Remix to change the active organization, update the session, and handle SSO and MFA enrollment automatically."
 ---
 
 Multi-tenant applications often need users to operate under a specific organization context — for example, switching between a personal workspace and a company account. AuthKit Remix provides `switchToOrganization` to handle this seamlessly: it refreshes the session token for the target organization, updates the encrypted session cookie, and handles cases where the target organization requires SSO sign-in or MFA enrollment by automatically redirecting to WorkOS AuthKit.
@@ -113,10 +113,20 @@ When `returnTo` is **not** provided, `switchToOrganization` returns a data respo
 ```typescript
 // app/routes/org-switcher.tsx
 import { useFetcher } from '@remix-run/react';
-import type { AuthorizedData } from '@workos-inc/authkit-remix';
+import type { User } from '@workos-inc/node';
+
+interface OrgAuth {
+  user: User;
+  sessionId: string;
+  organizationId: string | null;
+  role: string | null;
+  roles: string[] | null;
+  permissions: string[];
+  entitlements: string[];
+}
 
 export default function OrgSwitcher({ organizations }: { organizations: { id: string; name: string }[] }) {
-  const fetcher = useFetcher<{ success: boolean; auth: AuthorizedData }>();
+  const fetcher = useFetcher<{ success: boolean; auth: OrgAuth }>();
 
   const currentOrg = fetcher.data?.auth?.organizationId;
 

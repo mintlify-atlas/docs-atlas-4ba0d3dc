@@ -1,7 +1,7 @@
 ---
 title: "authLoader — OAuth Callback Route Handler for Remix"
 sidebarTitle: "authLoader"
-description: "authLoader creates the OAuth callback loader for Remix, exchanging the authorization code via PKCE, creating an encrypted session, and redirecting the user."
+description: "authLoader creates the OAuth callback loader for Remix, exchanging the authorization code via PKCE, creating an encrypted session, and redirecting users."
 ---
 
 `authLoader` creates the Remix loader function that handles the OAuth 2.0 callback from WorkOS. When the user completes sign-in, WorkOS redirects them back to your application with a `code` parameter. `authLoader` exchanges that code for tokens using PKCE, encrypts the resulting session into a cookie, and then redirects the user to their intended destination. You register it once in a dedicated callback route and it takes care of the entire token-exchange flow.
@@ -33,11 +33,11 @@ authLoader(options?: HandleAuthOptions): LoaderFunction
 </ParamField>
 
 <ParamField path="options.storage" type="SessionStorage">
-  A custom Remix `SessionStorage` instance. When provided, `cookie` is required. Pair this with a database-backed session store if you need server-side session invalidation beyond what the encrypted cookie provides.
+  A custom Remix `SessionStorage` instance. `storage` and `cookie` must be provided together — you must supply both or neither. Pair this with a database-backed session store if you need server-side session invalidation beyond what the encrypted cookie provides.
 </ParamField>
 
-<ParamField path="options.cookie" type="SessionIdStorageStrategy['cookie']" required="when storage is set">
-  Cookie configuration passed to the session storage layer. Required when `storage` is supplied. Can also be used independently to override cookie attributes (such as `name`, `maxAge`, or `domain`) on the default cookie-based store.
+<ParamField path="options.cookie" type="SessionIdStorageStrategy['cookie']">
+  Cookie configuration passed to the session storage layer. `cookie` and `storage` must be provided together — you must supply both or neither. When neither is supplied, you can use `cookie` alone to override cookie attributes (such as `name`, `maxAge`, or `domain`) on the default cookie-based store.
 </ParamField>
 
 ## AuthLoaderSuccessData

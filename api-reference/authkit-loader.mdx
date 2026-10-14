@@ -1,7 +1,7 @@
 ---
-title: "authkitLoader — Remix Route Loader with Auth and Session Refresh"
+title: "authkitLoader — Remix Loader with Auth and Session Refresh"
 sidebarTitle: "authkitLoader"
-description: "authkitLoader wraps your Remix route loader with automatic session management, token refresh, and optional sign-in enforcement, returning user and auth data."
+description: "authkitLoader wraps your Remix route loader with session management, automatic token refresh, and optional sign-in enforcement for auth-aware routes."
 ---
 
 `authkitLoader` is the primary way to add authentication to a Remix route loader. It reads the encrypted session cookie, verifies the access token, and automatically refreshes it using the refresh token when it has expired. You can pass an optional custom loader function to combine your own data-fetching logic with the resolved auth context. When `ensureSignedIn` is set to `true`, unauthenticated visitors are redirected to the WorkOS hosted sign-in page and returned to the original URL after authenticating.
@@ -112,11 +112,11 @@ The custom `loader` is called for both authenticated and unauthenticated users. 
 </ParamField>
 
 <ParamField path="storage" type="SessionStorage">
-  A custom Remix `SessionStorage` instance. When provided, `cookie` is also required. Use this to plug in a database-backed or Redis-backed session store instead of the default cookie-based storage.
+  A custom Remix `SessionStorage` instance. `storage` and `cookie` must be provided together — you must supply both or neither. Use this to plug in a database-backed or Redis-backed session store instead of the default cookie-based storage.
 </ParamField>
 
 <ParamField path="cookie" type="SessionIdStorageStrategy['cookie']">
-  Cookie configuration passed to the session storage layer. When `storage` is supplied, `cookie` is required. When used without `storage`, it can override cookie attributes such as `name`, `maxAge`, or `secure` on the default cookie store.
+  Cookie configuration passed to the session storage layer. `cookie` and `storage` must be provided together — you must supply both or neither. When neither is supplied, you can still use `cookie` alone to override attributes such as `name`, `maxAge`, or `secure` on the default cookie store.
 </ParamField>
 
 ## Return value

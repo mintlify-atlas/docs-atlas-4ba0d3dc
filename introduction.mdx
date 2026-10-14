@@ -1,7 +1,7 @@
 ---
-title: "AuthKit Remix: WorkOS Authentication for Remix"
+title: "AuthKit Remix: WorkOS Authentication for Remix Apps"
 sidebarTitle: "Introduction"
-description: "@workos-inc/authkit-remix provides authentication and encrypted session management for Remix apps using WorkOS & AuthKit. Learn what the library offers and how it works."
+description: "Learn how @workos-inc/authkit-remix provides PKCE sign-in flows, encrypted cookie sessions, and automatic token refresh for Remix applications."
 ---
 
 `@workos-inc/authkit-remix` is the official WorkOS authentication library for Remix applications. It handles the full lifecycle of user authentication — from initiating PKCE-based sign-in flows and processing OAuth callbacks, to storing encrypted sessions in cookies and automatically refreshing access tokens on every request. Rather than building these low-level concerns yourself, you drop in a few loaders and let the library keep your sessions secure, fresh, and consistent across every route.
@@ -26,6 +26,12 @@ description: "@workos-inc/authkit-remix provides authentication and encrypted se
   </Card>
   <Card title="withAuth" icon="key">
     A lower-level escape hatch for advanced use cases such as API routes and custom middleware. `withAuth` reads the current session directly without refreshing tokens or managing cookies, returning auth data including the raw access token for immediate server-side use.
+  </Card>
+  <Card title="signOut" icon="arrow-right-from-bracket">
+    `signOut` ends the user's session, destroys the encrypted session cookie, and redirects to your app's homepage or to an optional `returnTo` URL registered in the WorkOS dashboard.
+  </Card>
+  <Card title="configure, getConfig & getWorkOS" icon="gear">
+    `configure` supplies WorkOS credentials and optional settings (cookie name, max-age, API hostname) in code — useful when loading secrets from a secrets manager. `getConfig` retrieves the resolved value for any configuration key at runtime. `getWorkOS` returns the underlying `WorkOS` SDK client for direct API access. The `GetAuthURLResult` type describes the `{ url, headers }` object returned by `getSignInUrl` and `getSignUpUrl`.
   </Card>
 </CardGroup>
 

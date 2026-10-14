@@ -1,7 +1,7 @@
 ---
-title: "Debug AuthKit Remix Authentication Issues"
+title: "Debug AuthKit Remix Authentication Issues and Errors"
 sidebarTitle: "Debugging"
-description: "Enable debug logging in authkitLoader, inspect configuration with getConfig, and troubleshoot common AuthKit Remix issues like missing cookies and token refresh failures."
+description: "Enable authkitLoader debug logging, troubleshoot common AuthKit Remix issues like missing cookies, token refresh failures, and TLS proxy mismatches."
 ---
 
 Most authentication problems in AuthKit Remix fall into a small set of predictable categories: misconfigured cookies, missing PKCE state, token refresh failures, or protocol mismatches behind a proxy. This guide covers the built-in debug tooling and walks through the most common issues and their solutions.
@@ -43,18 +43,19 @@ export const loader = (args: LoaderFunctionArgs) =>
 
 ## Inspect Configuration
 
-The `getFullConfig` function returns the resolved configuration object — the merged result of programmatic settings, environment variables, and defaults:
+The `getConfig` function reads an individual resolved configuration value — the merged result of programmatic settings, environment variables, and defaults. Pass a key from `AuthKitConfig` to retrieve its value:
 
 ```typescript
-import { getFullConfig } from '@workos-inc/authkit-remix';
+import { getConfig } from '@workos-inc/authkit-remix';
 
 // Call server-side only, e.g. in a health-check or startup log
-const config = getFullConfig();
-console.log(config);
+console.log('Client ID:', getConfig('clientId'));
+console.log('Redirect URI:', getConfig('redirectUri'));
+console.log('Cookie name:', getConfig('cookieName'));
 ```
 
 <Warning>
-  Never log `getFullConfig()` output in production or include it in responses sent to the browser. The returned object contains your `apiKey` and `cookiePassword`, which are sensitive secrets. Use this function only in local development or controlled server-side diagnostics.
+  Never log sensitive configuration values in production or include them in responses sent to the browser. `getConfig('apiKey')` and `getConfig('cookiePassword')` return secret values. Use this function only in local development or controlled server-side diagnostics.
 </Warning>
 
 ## Common Issues
@@ -150,7 +151,7 @@ console.log(config);
 
     **Fix:** Configure your proxy to forward the `X-Forwarded-Proto` header with the client-facing protocol:
 
-    ```
+    ```http
     X-Forwarded-Proto: https
     ```
 

@@ -1,10 +1,10 @@
 ---
-title: "switchToOrganization — Change the Active WorkOS Organization"
+title: "switchToOrganization — Change Active WorkOS Organization"
 sidebarTitle: "switchToOrganization"
-description: "switchToOrganization refreshes the session token for a different WorkOS organization and updates the session cookie, with automatic re-auth for SSO and MFA requirements."
+description: "switchToOrganization refreshes the session for a different WorkOS org, updates the session cookie, and handles SSO or MFA re-authentication automatically."
 ---
 
-`switchToOrganization` exchanges the current session's refresh token for a new access token scoped to a different WorkOS organization, then commits the updated session to the encrypted cookie. When the target organization requires additional authentication steps — such as SSO enforcement (`sso_required`) or MFA enrollment (`mfa_enrollment`) — the function automatically initiates a new PKCE authorization flow and redirects the user to AuthKit to complete those requirements. Always call `switchToOrganization` from a server-side Remix action; never expose organization-switching logic to the client alone.
+`switchToOrganization` exchanges the current session's refresh token for a new access token scoped to a different WorkOS organization, then commits the updated session to the encrypted cookie. When the target organization requires additional authentication steps — such as SSO enforcement (`sso_required`) or MFA enrollment (`mfa_enrollment`) — the function automatically initiates a new PKCE authorization flow and returns a redirect response to AuthKit to complete those requirements. Always call `switchToOrganization` from a server-side Remix action; never expose organization-switching logic to the client alone.
 
 ## Import
 
@@ -106,20 +106,32 @@ On failure (non-redirect errors), the data shape is:
 
 ## Automatic re-authentication
 
-If the target organization enforces SSO (`sso_required`) or MFA enrollment (`mfa_enrollment`), `switchToOrganization` catches the error from WorkOS, generates a new PKCE authorization URL scoped to that organization, and **throws a redirect** to AuthKit. The redirect carries the PKCE flow cookie headers. When you call `switchToOrganization` in a `try/catch`, re-throw any `Response` with status `302`:
+If the target organization enforces SSO (`sso_required`) or MFA enrollment (`mfa_enrollment`), `switchToOrganization` catches the error from WorkOS, generates a new PKCE authorization URL scoped to that organization, and **returns** a redirect `Response` to AuthKit. Because it is a return (not a throw), Remix will forward it to the browser as long as your action returns the result of `switchToOrganization` directly:
+
+```typescript
+// app/routes/org.switch.ts
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const organizationId = formData.get('organizationId') as string;
+
+  // Returns a redirect to AuthKit if SSO/MFA is required,
+  // or returns the updated auth data / redirect to returnTo otherwise.
+  return await switchToOrganization(request, organizationId);
+}
+```
+
+There is one case where `switchToOrganization` **throws** rather than returns: when no session exists at all (the session cookie is missing or expired). In that case the internal `refreshSession` call throws a `302 Response` redirect to the AuthKit sign-in page. This thrown redirect is re-thrown by `switchToOrganization`. If you wrap the call in a `try/catch`, always re-throw any caught `Response`:
 
 ```typescript
 try {
   return await switchToOrganization(request, organizationId);
 } catch (error) {
-  if (error instanceof Response && error.status === 302) {
-    throw error; // propagate the AuthKit redirect
+  if (error instanceof Response) {
+    throw error; // propagate redirect responses (e.g. sign-in redirect when no session)
   }
   throw error;
 }
 ```
-
-In practice, because `switchToOrganization` is called from a Remix action and the automatic re-auth redirect is thrown (not returned), Remix will propagate it correctly as long as you do not swallow all exceptions.
 
 ## Examples
 

@@ -1,7 +1,7 @@
 ---
 title: "signOut — End a WorkOS Session and Clear Cookies"
 sidebarTitle: "signOut"
-description: "signOut terminates the active WorkOS session, destroys the encrypted session cookie, clears PKCE cookies, and redirects the user to the configured logout URL."
+description: "signOut destroys the session cookie, clears any PKCE cookies, and redirects to the WorkOS logout URL if a session exists or to returnTo or / if not."
 ---
 
 `signOut` terminates the user's active WorkOS session and clears all authentication state from the browser. It destroys the encrypted session cookie, clears any outstanding PKCE flow cookies left over from abandoned sign-in or sign-up flows, and then redirects the user. When an active session is found, `signOut` calls the WorkOS logout endpoint with the session ID, which invalidates the session server-side before issuing the redirect. Call `signOut` from a Remix action — typically triggered by a form submission.
@@ -25,7 +25,7 @@ signOut(request: Request, options?: { returnTo?: string }): Promise<Response>
 </ParamField>
 
 <ParamField path="options.returnTo" type="string" optional>
-  The URL to redirect the user to after logout. The value must be listed under **Logout redirects** in your WorkOS Dashboard — see [configuring logout redirects](https://workos.com/docs/user-management/sessions/configuring-sessions/logout-redirect) for instructions. Without this option, the user is redirected to the homepage URL configured in your WorkOS Dashboard under **Redirect**.
+  The URL to redirect the user to after logout. When an active session exists, this value is forwarded to the WorkOS logout endpoint as part of the logout URL and must be pre-registered under **Logout redirects** in your WorkOS Dashboard — see [configuring logout redirects](https://workos.com/docs/user-management/sessions/configuring-sessions/logout-redirect) for instructions. Without this option (and when a session exists), the user is redirected to the homepage URL configured in your WorkOS Dashboard under **Redirect**. When no session is found, `signOut` redirects directly to `returnTo` without involving WorkOS, so no Dashboard registration is required for that path.
 </ParamField>
 
 ## Return value
@@ -80,11 +80,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
 ## `returnTo`
 
-The `returnTo` value is forwarded to the WorkOS logout endpoint and must be pre-registered in your WorkOS Dashboard. Navigate to **User Management → Sessions → Logout redirects** and add the URLs your application may redirect to after sign-out. Unregistered URLs will cause the WorkOS logout endpoint to reject the request.
+When an active session exists, `signOut` constructs a WorkOS logout URL using the session ID and passes `returnTo` as the post-logout destination. In this case, the `returnTo` value must be pre-registered in your WorkOS Dashboard. Navigate to **User Management → Sessions → Logout redirects** and add the URLs your application may redirect to after sign-out. Unregistered URLs will cause the WorkOS logout endpoint to reject the request.
 
 See the [WorkOS logout redirect documentation](https://workos.com/docs/user-management/sessions/configuring-sessions/logout-redirect) for full configuration instructions.
 
-Without a `returnTo` option, WorkOS redirects the user to the homepage URL you have configured in your Dashboard under **Redirect**.
+Without a `returnTo` option and when a session exists, WorkOS redirects the user to the homepage URL configured in your Dashboard under **Redirect**. When no session is found, `signOut` issues a direct redirect to `returnTo` (or `/` if not provided) without involving WorkOS — no Dashboard registration is needed for this path.
 
 <Note>
   `signOut` also clears any outstanding PKCE flow cookies set by `getSignInUrl` or `getSignUpUrl`. This means that if a user initiated but never completed a sign-in or sign-up flow, those abandoned flow cookies are cleaned up at logout time, preventing cookie accumulation.

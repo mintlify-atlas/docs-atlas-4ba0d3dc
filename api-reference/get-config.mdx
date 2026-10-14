@@ -1,7 +1,7 @@
 ---
 title: "getConfig — Read AuthKit Remix Configuration Values"
 sidebarTitle: "getConfig"
-description: "getConfig retrieves a configuration value by key, following the priority order: programmatic values, environment variables, then defaults."
+description: "getConfig retrieves a typed configuration value by key, resolving in priority order: environment variables first, then programmatic config, then defaults."
 ---
 
 `getConfig` is a typed accessor that reads a single AuthKit configuration value by its key. It walks a well-defined resolution chain — environment variables first, then values set via [`configure()`](/api-reference/configure), then built-in defaults — so you always get the effective value that AuthKit will use at runtime. If a required key cannot be resolved through any of these sources, `getConfig` throws an error rather than silently returning `undefined`.

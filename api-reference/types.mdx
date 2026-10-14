@@ -4,13 +4,13 @@ sidebarTitle: "Types"
 description: "Complete TypeScript type reference for @workos-inc/authkit-remix, including auth data shapes, configuration interfaces, loader options, and session types."
 ---
 
-`@workos-inc/authkit-remix` is written in TypeScript and ships its type declarations alongside the compiled JavaScript. This page documents every public-facing interface and type so you can annotate your loaders, actions, and helper functions precisely. Where a type re-exports from `@workos-inc/node` — such as `User` or `OauthTokens` — a note points you to the WorkOS Node SDK documentation for the full definition.
+`@workos-inc/authkit-remix` is written in TypeScript and ships its type declarations alongside the compiled JavaScript. This page documents every public-facing interface and type so you can annotate your loaders, actions, and helper functions precisely. Only `GetAuthURLResult` is a named export from the package; the remaining types are available through TypeScript inference on the return and parameter types of the exported functions, or by importing directly from the package's type declarations. Where a type re-exports from `@workos-inc/node` — such as `User` or `OauthTokens` — a note points you to the WorkOS Node SDK documentation for the full definition.
 
 ---
 
 ## GetAuthURLResult
 
-Returned by the internal URL-generation helpers. Forward the `headers` onto the response that starts the sign-in redirect so that any cookie deletions are applied before the user reaches the identity provider.
+Returned by the internal URL-generation helpers and re-exported as a named type from the package. Forward the `headers` onto the response that starts the sign-in redirect so that any cookie deletions are applied before the user reaches the identity provider.
 
 ```typescript
 interface GetAuthURLResult {
@@ -105,6 +105,92 @@ interface UnauthorizedData {
 <ResponseField name="permissions" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
 <ResponseField name="entitlements" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
 <ResponseField name="impersonator" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+
+---
+
+## UserInfo
+
+The resolved session data for an authenticated user, returned internally after the access token is decoded. Extends the fields found in `AuthorizedData` with the raw `accessToken` string. Optional fields (`organizationId`, `role`, etc.) are absent rather than `null` when the session has no organization scope.
+
+```typescript
+interface UserInfo {
+  user: User;
+  sessionId: string;
+  organizationId?: string;
+  role?: string;
+  roles?: string[];
+  permissions?: string[];
+  entitlements?: string[];
+  impersonator?: Impersonator;
+  accessToken: string;
+}
+```
+
+<ResponseField name="user" type="User" required>
+  The authenticated WorkOS `User` object.
+</ResponseField>
+
+<ResponseField name="sessionId" type="string" required>
+  The `sid` claim from the WorkOS access token, uniquely identifying the current session.
+</ResponseField>
+
+<ResponseField name="organizationId" type="string">
+  The organization the session is scoped to, when present.
+</ResponseField>
+
+<ResponseField name="role" type="string">
+  The user's primary role slug within the current organization, when assigned.
+</ResponseField>
+
+<ResponseField name="roles" type="string[]">
+  All roles assigned to the user within the current organization, when present.
+</ResponseField>
+
+<ResponseField name="permissions" type="string[]">
+  Permission slugs granted to the user in this session, when present.
+</ResponseField>
+
+<ResponseField name="entitlements" type="string[]">
+  Entitlement slugs available to the user, when present.
+</ResponseField>
+
+<ResponseField name="impersonator" type="Impersonator">
+  Impersonator details when an admin is impersonating this user. See [`Impersonator`](#impersonator).
+</ResponseField>
+
+<ResponseField name="accessToken" type="string" required>
+  The raw signed JWT access token for the current session.
+</ResponseField>
+
+---
+
+## NoUserInfo
+
+The resolved session data when no authenticated session is present. Every field is either `null` (for `user`) or `undefined` (for all others). Use this alongside `UserInfo` to type the result of session resolution without narrowing.
+
+```typescript
+interface NoUserInfo {
+  user: null;
+  sessionId?: undefined;
+  organizationId?: undefined;
+  role?: undefined;
+  roles?: undefined;
+  permissions?: undefined;
+  entitlements?: undefined;
+  impersonator?: undefined;
+  accessToken?: undefined;
+}
+```
+
+<ResponseField name="user" type="null" required>Always `null` when there is no active session.</ResponseField>
+<ResponseField name="sessionId" type="undefined">Always `undefined` when there is no active session.</ResponseField>
+<ResponseField name="organizationId" type="undefined">Always `undefined` when there is no active session.</ResponseField>
+<ResponseField name="role" type="undefined">Always `undefined` when there is no active session.</ResponseField>
+<ResponseField name="roles" type="undefined">Always `undefined` when there is no active session.</ResponseField>
+<ResponseField name="permissions" type="undefined">Always `undefined` when there is no active session.</ResponseField>
+<ResponseField name="entitlements" type="undefined">Always `undefined` when there is no active session.</ResponseField>
+<ResponseField name="impersonator" type="undefined">Always `undefined` when there is no active session.</ResponseField>
+<ResponseField name="accessToken" type="undefined">Always `undefined` when there is no active session.</ResponseField>
 
 ---
 
@@ -331,7 +417,7 @@ interface RefreshErrorOptions {
 </ResponseField>
 
 <ResponseField name="isTransient" type="boolean" required>
-  `true` when the failure is considered transient — e.g. a network error, timeout, HTTP 429, or 5xx response from the WorkOS API. When `true`, AuthKit preserves the existing session so the user can retry. `false` for terminal failures (invalid/expired tokens), where the session is destroyed and the user must re-authenticate.
+  `true` when the failure is considered transient — e.g. a network error, timeout, HTTP 429, or 5xx response from the WorkOS API. When `true`, AuthKit preserves the existing session so the user can retry. `false` for terminal failures (invalid or expired tokens), where the session is destroyed and the user must re-authenticate.
 </ResponseField>
 
 ---
@@ -363,6 +449,36 @@ interface RefreshSuccessOptions {
 
 <ResponseField name="organizationId" type="string | null" required>
   The organization the session is scoped to after the refresh, or `null` for sessions not tied to an organization.
+</ResponseField>
+
+---
+
+## DataWithResponseInit\<T\>
+
+A generic type alias for the return value of Remix's built-in `data()` utility function. `authkitLoader` always returns `DataWithResponseInit<AuthorizedData>`, `DataWithResponseInit<UnauthorizedData>`, or a union of both, so custom loaders that call `data()` can type their own return values accordingly.
+
+```typescript
+type DataWithResponseInit<T> = ReturnType<typeof data<T>>;
+```
+
+<ResponseField name="T" type="generic">
+  The type of the serializable data payload wrapped by the `data()` response. When returned from `authkitLoader`, `T` is `AuthorizedData`, `UnauthorizedData`, or a union of both.
+</ResponseField>
+
+---
+
+## SessionRefreshError
+
+A class thrown internally by `authkitLoader` when a session token refresh fails. It extends the built-in `Error` and adds an `isTransient` flag so that error handlers — including the `onSessionRefreshError` callback — can distinguish recoverable network failures from terminal token errors.
+
+```typescript
+class SessionRefreshError extends Error {
+  readonly isTransient: boolean;
+}
+```
+
+<ResponseField name="isTransient" type="boolean" required>
+  `true` when the refresh failed for a transient reason: a network error, timeout, HTTP 429, or 5xx response from the WorkOS API. When `true`, the existing session is preserved and the user is redirected back to sign-in so that a later request can attempt the refresh again, rather than destroying the session and forcing full re-authentication. `false` for terminal failures such as an invalid or expired refresh token, where the session is destroyed.
 </ResponseField>
 
 ---

@@ -1,7 +1,7 @@
 ---
 title: "configure — Programmatic AuthKit Remix Configuration"
 sidebarTitle: "configure"
-description: "The configure function sets WorkOS credentials and options programmatically, with support for custom environment variable sources for non-standard runtimes."
+description: "configure sets WorkOS credentials and AuthKit options in code, with support for custom environment variable sources for non-standard runtimes."
 ---
 
 The `configure` function lets you supply WorkOS credentials and AuthKit options in code rather than relying solely on environment variables. This is especially useful in runtimes that do not expose `process.env` — such as Deno, Cloudflare Workers, or edge deployments — where you can pass a custom resolver function so AuthKit knows how to read environment values.
@@ -12,17 +12,19 @@ import { configure } from '@workos-inc/authkit-remix';
 
 ## Overloads
 
-`configure` is overloaded to accept a config object, a value-source function, or both together.
+`configure` is overloaded to accept a config object, a value source, or both together. A **value source** (`ValueSource`) is either a resolver function `(key: string) => any` or a plain `Record<string, any>` object — both are accepted wherever a source is expected.
 
 ```typescript
+type ValueSource = Record<string, any> | ((key: string) => any);
+
 // Overload 1 — programmatic config object
 configure(config: Partial<AuthKitConfig>): void
 
 // Overload 2 — custom environment variable source
-configure(source: (key: string) => any): void
+configure(source: ValueSource): void
 
 // Overload 3 — config object plus custom source
-configure(config: Partial<AuthKitConfig>, source: (key: string) => any): void
+configure(config: Partial<AuthKitConfig>, source: ValueSource): void
 ```
 
 ## Parameters
@@ -35,8 +37,11 @@ configure(config: Partial<AuthKitConfig>, source: (key: string) => any): void
 
 ### Overload 2 — `configure(source)`
 
-<ParamField body="source" type="(key: string) => any" required>
-  A function that receives an uppercase, underscore-separated environment variable name (e.g. `"WORKOS_API_KEY"`) and returns its value, or `undefined` if it is not set. Use this overload to integrate with runtimes that do not support `process.env`.
+<ParamField body="source" type="ValueSource" required>
+  A custom value source for reading environment variables. Accepted forms:
+
+  - **Function** — `(key: string) => any`: receives an uppercase, underscore-separated environment variable name (e.g. `"WORKOS_API_KEY"`) and returns its value, or `undefined` if not set. Use this for runtimes without `process.env` such as Deno or Cloudflare Workers.
+  - **Object** — `Record<string, any>`: a plain object whose keys are the uppercase environment variable names and whose values are the corresponding values (e.g. `{ WORKOS_API_KEY: 'sk-...' }`).
 </ParamField>
 
 ### Overload 3 — `configure(config, source)`
@@ -45,8 +50,8 @@ configure(config: Partial<AuthKitConfig>, source: (key: string) => any): void
   A partial configuration object applied on top of any values returned by `source`.
 </ParamField>
 
-<ParamField body="source" type="(key: string) => any" required>
-  A custom environment variable resolver, identical to the one described in Overload 2.
+<ParamField body="source" type="ValueSource" required>
+  A custom value source (function or object), identical to the one described in Overload 2.
 </ParamField>
 
 ## Configuration options
@@ -99,15 +104,21 @@ configure((key) => env[key]);
 
 ### Overload 3 — Config object plus custom source
 
-Combine explicit overrides with a runtime-specific environment variable source.
+Combine explicit overrides with a runtime-specific value source. The source can be a resolver function or a plain object.
 
 ```typescript
 import { configure } from '@workos-inc/authkit-remix';
 
-// Provide a fallback source for any keys not set in the config object
+// Function source — e.g. Deno runtime
 configure(
   { clientId: 'client_01HQMJZD...' },
   (key) => Deno.env.get(key),
+);
+
+// Object source — pass env vars as a plain record (e.g. Cloudflare Workers bindings)
+configure(
+  { clientId: 'client_01HQMJZD...' },
+  { WORKOS_API_KEY: 'sk-...', WORKOS_REDIRECT_URI: 'https://your-app.com/auth/callback' },
 );
 ```
 

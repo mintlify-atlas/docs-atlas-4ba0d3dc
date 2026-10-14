@@ -1,7 +1,7 @@
 ---
-title: "getWorkOS — Access the WorkOS SDK Instance"
+title: "getWorkOS — Access the Lazily Initialized WorkOS Client"
 sidebarTitle: "getWorkOS"
-description: "getWorkOS returns the lazily initialized WorkOS SDK client configured with your API key, for direct access to WorkOS APIs beyond what authkitLoader provides."
+description: "getWorkOS returns the lazily initialized WorkOS SDK client, configured with your API key, for direct access to WorkOS APIs beyond authkitLoader."
 ---
 
 `getWorkOS` returns the singleton `WorkOS` client instance from the [`@workos-inc/node`](https://github.com/workos/workos-node) SDK, already configured with the credentials and API settings AuthKit resolved from your environment or [`configure()`](/api-reference/configure) call. Use it whenever you need to call WorkOS APIs directly — for example, fetching organizations, listing users, managing directory sync, or performing any operation that `authkitLoader` does not expose out of the box.

@@ -1,5 +1,5 @@
 ---
-title: "Set Up the AuthKit OAuth Callback Route in Remix"
+title: "Configure the AuthKit OAuth Callback Route in Remix"
 sidebarTitle: "Callback Route"
 description: "Create the OAuth callback route in your Remix app using authLoader to exchange the authorization code, validate PKCE, and establish an encrypted session."
 ---
@@ -27,7 +27,7 @@ For example, if your redirect URI is `http://localhost:5173/callback`, place the
 WORKOS_REDIRECT_URI="http://localhost:5173/callback"
 ```
 
-```
+```text
 app/
 └── routes/
     └── callback.ts   ← handles GET /callback

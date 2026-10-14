@@ -61,11 +61,11 @@ In this example `clientId` is pinned to the literal value while all other keys �
 
 When a configuration value is needed, `@workos-inc/authkit-remix` checks sources in the following order:
 
-1. **Programmatic values** supplied via `configure()` (highest priority)
-2. **Environment variables** prefixed with `WORKOS_` (via `process.env` or your custom source)
+1. **Environment variables** prefixed with `WORKOS_` (via `process.env` or your custom source) — highest priority
+2. **Programmatic values** supplied via `configure()`
 3. **Built-in defaults** for optional settings (lowest priority)
 
-Required keys (`clientId`, `apiKey`, `redirectUri`, `cookiePassword`) that cannot be found in any source will cause the library to throw an error at the point they are first accessed.
+This means a `WORKOS_` environment variable will always override the equivalent value supplied to `configure()`. Required keys (`clientId`, `apiKey`, `redirectUri`, `cookiePassword`) that cannot be found in any source will cause the library to throw an error at the point they are first accessed.
 
 ## Available options
 
@@ -83,8 +83,8 @@ Required keys (`clientId`, `apiKey`, `redirectUri`, `cookiePassword`) that canno
 | `issuer` | `WORKOS_ISSUER` | — | No | Expected `iss` claim of access tokens, or an array of accepted issuers. When not set, the issuer claim is not validated. |
 
 <Note>
-  A `getFullConfig()` function is available for debugging. It returns the
-  resolved value for every configuration key, merging programmatic values,
-  environment variables, and defaults, so you can quickly verify what the library
-  will use at runtime.
+  To inspect a specific resolved configuration value at runtime, use the exported
+  `getConfig(key)` function — for example, `getConfig('apiHostname')`. This is
+  the only public configuration getter exported from `@workos-inc/authkit-remix`;
+  there is no `getFullConfig` export.
 </Note>

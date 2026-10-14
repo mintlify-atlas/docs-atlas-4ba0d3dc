@@ -1,7 +1,7 @@
 ---
-title: "getSignUpUrl — Generate a PKCE Sign-Up URL for AuthKit"
+title: "getSignUpUrl — PKCE Sign-Up URL for AuthKit Remix"
 sidebarTitle: "getSignUpUrl"
-description: "getSignUpUrl returns a WorkOS AuthKit authorization URL and cookie headers for PKCE-secured sign-up. Forward both url and headers in your Remix redirect response."
+description: "getSignUpUrl returns a WorkOS AuthKit authorization URL and PKCE cookie headers for sign-up. Forward both url and headers in your Remix redirect response."
 ---
 
 `getSignUpUrl` works identically to [`getSignInUrl`](/api-reference/get-sign-in-url) but sends `screenHint: 'sign-up'` to WorkOS, which instructs AuthKit to present the registration UI first rather than the sign-in form. Like `getSignInUrl`, it generates a PKCE code verifier, stores it encrypted in a short-lived HttpOnly cookie, and returns a `{ url, headers }` object — both must be forwarded to start a secure sign-up flow. Use `getSignUpUrl` in a dedicated Remix loader and redirect the user immediately.

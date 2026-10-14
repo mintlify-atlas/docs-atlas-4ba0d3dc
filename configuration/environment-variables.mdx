@@ -45,9 +45,10 @@ WORKOS_ISSUER=
 
 <Note>
   **Configuration priority:** when the same option is supplied in multiple ways,
-  programmatic values set via `configure()` take the highest precedence, followed
-  by environment variables, and finally the built-in defaults for optional
-  settings.
+  environment variables are checked **first**, followed by programmatic values
+  set via `configure()`, and finally the built-in defaults for optional settings.
+  This means a `WORKOS_` environment variable will override a value supplied to
+  `configure()` for the same key.
 </Note>
 
 <Note>

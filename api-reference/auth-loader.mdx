@@ -1,0 +1,157 @@
+---
+title: "authLoader — OAuth Callback Route Handler for Remix"
+sidebarTitle: "authLoader"
+description: "authLoader creates the OAuth callback loader for Remix, exchanging the authorization code via PKCE, creating an encrypted session, and redirecting the user."
+---
+
+`authLoader` creates the Remix loader function that handles the OAuth 2.0 callback from WorkOS. When the user completes sign-in, WorkOS redirects them back to your application with a `code` parameter. `authLoader` exchanges that code for tokens using PKCE, encrypts the resulting session into a cookie, and then redirects the user to their intended destination. You register it once in a dedicated callback route and it takes care of the entire token-exchange flow.
+
+```ts
+import { authLoader } from '@workos-inc/authkit-remix';
+```
+
+## Signature
+
+```ts
+authLoader(options?: HandleAuthOptions): LoaderFunction
+```
+
+`authLoader` is a factory — it accepts an optional options object and returns a Remix `LoaderFunction` that you export from your callback route.
+
+## Parameters
+
+<ParamField path="options" type="HandleAuthOptions">
+  Optional configuration for the callback loader. All properties are optional unless `storage` is provided.
+</ParamField>
+
+<ParamField path="options.returnPathname" type="string" default="'/'">
+  The path to redirect the user to after a successful sign-in when no return URL was stored in the PKCE state cookie. Defaults to `'/'`. If the authorization request included a `returnPathname` in state (set automatically by `authkitLoader` with `ensureSignedIn: true`), that path takes precedence over this value.
+</ParamField>
+
+<ParamField path="options.onSuccess" type="(data: AuthLoaderSuccessData) => void | Promise<void>">
+  An async callback invoked after a successful token exchange, before the redirect is issued. Use it to persist user data, sync the session to a database, or trigger analytics events. The callback receives an `AuthLoaderSuccessData` object — see the [AuthLoaderSuccessData](#authloadersuccessdata) section below.
+</ParamField>
+
+<ParamField path="options.storage" type="SessionStorage">
+  A custom Remix `SessionStorage` instance. When provided, `cookie` is required. Pair this with a database-backed session store if you need server-side session invalidation beyond what the encrypted cookie provides.
+</ParamField>
+
+<ParamField path="options.cookie" type="SessionIdStorageStrategy['cookie']" required="when storage is set">
+  Cookie configuration passed to the session storage layer. Required when `storage` is supplied. Can also be used independently to override cookie attributes (such as `name`, `maxAge`, or `domain`) on the default cookie-based store.
+</ParamField>
+
+## AuthLoaderSuccessData
+
+The object passed to `onSuccess` after a successful token exchange.
+
+<ResponseField name="accessToken" type="string">
+  The short-lived JWT access token issued by WorkOS. Contains session, organization, role, and permission claims. **Do not persist or log this value** — treat it as ephemeral and server-only.
+</ResponseField>
+
+<ResponseField name="impersonator" type="Impersonator | null">
+  When a WorkOS admin is impersonating the user during sign-in, contains an object with `email` (the admin's email address) and `reason` (the stated reason, or `null`). Otherwise `null`.
+</ResponseField>
+
+<ResponseField name="oauthTokens" type="OauthTokens | null">
+  The raw OAuth tokens returned by the identity provider when the user signed in via a social or enterprise SSO connection. `null` for password and magic-link sign-ins, or when the provider does not return OAuth tokens.
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string">
+  The long-lived refresh token used to obtain new access tokens after expiry. This value is encrypted into the session cookie by `authLoader` automatically. **Never return this value from a loader or include it in any client-visible response.**
+</ResponseField>
+
+<ResponseField name="user" type="User">
+  The authenticated WorkOS `User` object, including `id`, `email`, `firstName`, `lastName`, `profilePictureUrl`, and related fields.
+</ResponseField>
+
+<ResponseField name="organizationId" type="string | null">
+  The ID of the organization the user signed in to, or `null` if the authentication was not scoped to an organization.
+</ResponseField>
+
+## Examples
+
+### Minimal setup
+
+Create a dedicated callback route file and export the loader created by `authLoader`. The route's path must match the `WORKOS_REDIRECT_URI` you configured.
+
+```ts
+// app/routes/callback.tsx
+import { authLoader } from '@workos-inc/authkit-remix';
+
+export const loader = authLoader();
+```
+
+### With `returnPathname`
+
+Redirect users to a specific path after sign-in when no return URL was stored in the PKCE state cookie.
+
+```ts
+// app/routes/callback.tsx
+import { authLoader } from '@workos-inc/authkit-remix';
+
+export const loader = authLoader({
+  returnPathname: '/dashboard',
+});
+```
+
+### With `onSuccess` callback
+
+Use `onSuccess` to upsert user data in your own database immediately after every sign-in.
+
+```ts
+// app/routes/callback.tsx
+import { authLoader } from '@workos-inc/authkit-remix';
+import { upsertUser } from '~/models/user.server';
+
+export const loader = authLoader({
+  returnPathname: '/dashboard',
+  onSuccess: async ({ user, organizationId, accessToken }) => {
+    await upsertUser({
+      workosUserId: user.id,
+      email: user.email,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      organizationId: organizationId ?? null,
+    });
+  },
+});
+```
+
+### With custom session storage
+
+Supply a custom `SessionStorage` instance when you need server-side session management, for example using `createDatabaseSessionStorage`.
+
+```ts
+// app/routes/callback.tsx
+import { authLoader } from '@workos-inc/authkit-remix';
+import { createDatabaseSessionStorage } from '~/session.server';
+
+const sessionStorage = createDatabaseSessionStorage({
+  cookie: {
+    name: 'wos-session',
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    secrets: [process.env.SESSION_SECRET!],
+  },
+});
+
+export const loader = authLoader({
+  storage: sessionStorage,
+  cookie: {
+    name: 'wos-session',
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    secrets: [process.env.SESSION_SECRET!],
+  },
+});
+```
+
+<Note>
+  The route path for this loader must exactly match the `WORKOS_REDIRECT_URI` environment variable and the redirect URI registered in the WorkOS dashboard. A mismatch will cause the OAuth callback to fail with a redirect URI error from WorkOS before `authLoader` is ever invoked.
+</Note>
+
+<Note>
+  PKCE validation is performed automatically. `authLoader` reads the code verifier from an HttpOnly state cookie that was set when the authorization URL was generated. If the state cookie is missing, expired, or tampered with, the callback will fail with an error rather than completing the token exchange. This protects against cross-site request forgery and authorization code injection attacks.
+</Note>

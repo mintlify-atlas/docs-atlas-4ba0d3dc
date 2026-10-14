@@ -1,0 +1,156 @@
+---
+title: "Access and Use Tokens Securely in AuthKit Remix"
+sidebarTitle: "Access Tokens"
+description: "Use getAccessToken() inside authkitLoader to make authenticated server-side API calls, and understand when and how to safely expose tokens to the client."
+---
+
+AuthKit Remix follows a security-first model for access tokens: by default, tokens never leave the server. The access token is held in an encrypted session cookie and exposed inside your loader exclusively through the `getAccessToken()` function — which only executes server-side and is never serialized into the JSON data sent to your React components. This design makes it easy to call protected APIs without accidentally leaking credentials into the browser.
+
+## Getting the Access Token in a Loader
+
+Pass a custom loader function as the second argument to `authkitLoader`. The function receives `auth` (the user and session fields) and `getAccessToken` (a zero-argument function that returns the current access token string). Call `getAccessToken()` explicitly to retrieve the token and use it in upstream API requests.
+
+```typescript
+// app/routes/dashboard.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, async ({ auth, getAccessToken }) => {
+    if (!auth.user) {
+      // Not signed in — getAccessToken() returns null in this branch
+      return { data: null };
+    }
+
+    const accessToken = getAccessToken();
+
+    const serviceData = await fetch('https://api.example.com/data', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    return {
+      data: await serviceData.json(),
+    };
+  });
+```
+
+The `data` value and all `auth` fields (`user`, `sessionId`, `role`, etc.) are merged and returned to your component. The access token itself is **not** included in this merged payload unless you explicitly return it.
+
+## Security Considerations
+
+Access tokens are intentionally excluded from the JSON payload that Remix serializes and sends to the browser. This prevents token exposure in several common attack surfaces:
+
+<CardGroup cols={2}>
+  <Card title="Browser DevTools" icon="magnifying-glass">
+    Loader data is visible in the Remix DevTools panel and the Network tab. Tokens that appear here can be copied and replayed by anyone with access to the browser.
+  </Card>
+  <Card title="HTML Source" icon="code">
+    Remix embeds initial loader data as a `<script>` tag in the server-rendered HTML. An access token in that data is readable in the raw page source.
+  </Card>
+  <Card title="Client-Side Logs" icon="terminal">
+    Error reporting tools (Sentry, Datadog RUM, etc.) often capture `window.__remixContext` or logged objects. A token included in loader data can end up in third-party error tracking.
+  </Card>
+  <Card title="Replay Attacks" icon="shield-halved">
+    Keeping the token server-side ensures it cannot be extracted and reused outside the context of the authenticated session.
+  </Card>
+</CardGroup>
+
+## Exposing Tokens to the Client
+
+If your application genuinely needs the access token in the browser — for example, to call a WorkOS-secured API directly from a React component — you can return it explicitly from your loader:
+
+```typescript
+// app/routes/client-api-page.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(
+    args,
+    async ({ auth, getAccessToken }) => {
+      const accessToken = getAccessToken();
+
+      return {
+        // Explicitly included — will be visible in the browser
+        accessToken,
+        userData: await fetchUserData(accessToken),
+      };
+    },
+    { ensureSignedIn: true },
+  );
+```
+
+<Warning>
+  Only expose the access token to the client when absolutely necessary, such as when making direct browser-to-API calls that cannot be proxied through your Remix server. Prefer server-side API calls in your loader, or create a proxy route in your application that adds the `Authorization` header on behalf of the browser. If you must expose a token, consider issuing a separate, scope-limited token specifically for client use.
+</Warning>
+
+## Using with `ensureSignedIn`
+
+When `ensureSignedIn: true` is set, `authkitLoader` guarantees that only authenticated users reach the custom loader. In this context, `getAccessToken()` always returns a non-null `string` — no null check needed:
+
+```typescript
+// app/routes/protected.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(
+    args,
+    async ({ auth, getAccessToken }) => {
+      // With ensureSignedIn: true, the user is guaranteed to be authenticated
+      const accessToken = getAccessToken();
+
+      // No null-check required — use the token directly
+      const data = await fetchProtectedData(accessToken);
+
+      return { data };
+    },
+    { ensureSignedIn: true },
+  );
+```
+
+## `withAuth` vs `authkitLoader`
+
+For advanced use cases, `withAuth` provides lower-level access to authentication data and includes the `accessToken` directly as a property on the returned object.
+
+```typescript
+import { withAuth } from '@workos-inc/authkit-remix';
+import { redirect } from '@remix-run/node';
+import type { LoaderFunctionArgs } from '@remix-run/node';
+
+export const loader = async (args: LoaderFunctionArgs) => {
+  const auth = await withAuth(args);
+
+  if (!auth.user) {
+    throw redirect('/sign-in');
+  }
+
+  const { accessToken, user } = auth;
+
+  const apiData = await fetch('https://api.example.com/data', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  return {
+    user,
+    apiData: await apiData.json(),
+    // accessToken, // ⚠️ Only include if client-side access is necessary
+  };
+};
+```
+
+The critical difference from `authkitLoader` is that **`withAuth` does not handle token refresh**. If the access token is expired, `withAuth` returns `{ user: null }` and logs a warning. For most routes, use `authkitLoader`; reach for `withAuth` only when you need full manual control — for example, in API routes or custom middleware where you don't want automatic redirects.
+
+| | `authkitLoader` | `withAuth` |
+|---|---|---|
+| Automatic token refresh | ✅ | ❌ |
+| Cookie updates on response | ✅ | ❌ |
+| Redirect unauthenticated users | ✅ (with `ensureSignedIn`) | ❌ (manual) |
+| `getAccessToken()` function | ✅ | N/A — token is a direct property |
+| Suitable for most routes | ✅ | For advanced/API use only |
+
+<Warning>
+  **Behind a TLS-terminating proxy:** If your Remix server sits behind a load balancer or reverse proxy that terminates HTTPS, configure the proxy to forward the `X-Forwarded-Proto: https` header. The SDK reads this header to determine whether to set the `Secure` attribute on PKCE and session cookies. Without it, cookies set in production may be sent over HTTP, causing authentication failures or insecure transmission.
+</Warning>

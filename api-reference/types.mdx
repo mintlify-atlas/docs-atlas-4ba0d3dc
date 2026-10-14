@@ -1,0 +1,372 @@
+---
+title: "TypeScript Types Exported by @workos-inc/authkit-remix"
+sidebarTitle: "Types"
+description: "Complete TypeScript type reference for @workos-inc/authkit-remix, including auth data shapes, configuration interfaces, loader options, and session types."
+---
+
+`@workos-inc/authkit-remix` is written in TypeScript and ships its type declarations alongside the compiled JavaScript. This page documents every public-facing interface and type so you can annotate your loaders, actions, and helper functions precisely. Where a type re-exports from `@workos-inc/node` — such as `User` or `OauthTokens` — a note points you to the WorkOS Node SDK documentation for the full definition.
+
+---
+
+## GetAuthURLResult
+
+Returned by the internal URL-generation helpers. Forward the `headers` onto the response that starts the sign-in redirect so that any cookie deletions are applied before the user reaches the identity provider.
+
+```typescript
+interface GetAuthURLResult {
+  url: string;
+  headers: Headers;
+}
+```
+
+<ResponseField name="url" type="string" required>
+  The fully-formed WorkOS-hosted authentication URL to redirect the user to.
+</ResponseField>
+
+<ResponseField name="headers" type="Headers" required>
+  Response headers that must be forwarded on the redirect response. Includes any `Set-Cookie` headers needed to clear stale session cookies before the flow begins.
+</ResponseField>
+
+---
+
+## AuthorizedData
+
+The shape of the data returned by `authkitLoader` (via `withAuth`) when the request belongs to an authenticated user. All nullable fields are present but set to `null` when the corresponding information is absent (e.g. the user has no active organization).
+
+```typescript
+interface AuthorizedData {
+  user: User;
+  sessionId: string;
+  organizationId: string | null;
+  role: string | null;
+  roles: string[] | null;
+  permissions: string[];
+  entitlements: string[];
+  impersonator: Impersonator | null;
+}
+```
+
+<ResponseField name="user" type="User" required>
+  The authenticated WorkOS `User` object. See the [WorkOS Node SDK docs](https://workos.com/docs/reference/client-libraries) for the full `User` shape.
+</ResponseField>
+
+<ResponseField name="sessionId" type="string" required>
+  The `sid` claim from the WorkOS access token, uniquely identifying the current session.
+</ResponseField>
+
+<ResponseField name="organizationId" type="string | null" required>
+  The ID of the organization the user is currently acting within, or `null` when the session is not scoped to an organization.
+</ResponseField>
+
+<ResponseField name="role" type="string | null" required>
+  The user's primary role slug within the current organization, or `null` when no role is assigned.
+</ResponseField>
+
+<ResponseField name="roles" type="string[] | null" required>
+  All roles assigned to the user within the current organization, or `null` when no roles are present.
+</ResponseField>
+
+<ResponseField name="permissions" type="string[]" required>
+  The list of permission slugs granted to the user in the current session context. Empty array when no permissions are assigned.
+</ResponseField>
+
+<ResponseField name="entitlements" type="string[]" required>
+  The list of entitlement slugs available to the user. Empty array when no entitlements are assigned.
+</ResponseField>
+
+<ResponseField name="impersonator" type="Impersonator | null" required>
+  When a WorkOS dashboard admin is impersonating this user, this field contains the impersonator's details. `null` during normal (non-impersonated) sessions. See [`Impersonator`](#impersonator) below.
+</ResponseField>
+
+---
+
+## UnauthorizedData
+
+The shape of the data returned by `authkitLoader` (via `withAuth`) when the request has no valid session. Every field is `null`. Use this type to narrow the result of `withAuth` in your loaders.
+
+```typescript
+interface UnauthorizedData {
+  user: null;
+  sessionId: null;
+  organizationId: null;
+  role: null;
+  roles: null;
+  permissions: null;
+  entitlements: null;
+  impersonator: null;
+}
+```
+
+<ResponseField name="user" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="sessionId" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="organizationId" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="role" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="roles" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="permissions" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="entitlements" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+<ResponseField name="impersonator" type="null" required>Always `null` for unauthenticated requests.</ResponseField>
+
+---
+
+## AuthKitLoaderOptions
+
+Options accepted by `authkitLoader`. All fields are optional. The `storage` and `cookie` fields form a discriminated union: you may pass only `cookie` (to use the default Remix session storage with a custom cookie), or pass both `storage` and `cookie` together to supply a fully custom `SessionStorage` implementation.
+
+```typescript
+type AuthKitLoaderOptions = {
+  ensureSignedIn?: boolean;
+  debug?: boolean;
+  onSessionRefreshError?: (options: RefreshErrorOptions) => void | Response | Promise<void | Response>;
+  onSessionRefreshSuccess?: (options: RefreshSuccessOptions) => void | Promise<void>;
+} & (
+  | { storage?: never; cookie?: SessionIdStorageStrategy['cookie'] }
+  | { storage: SessionStorage; cookie: SessionIdStorageStrategy['cookie'] }
+);
+```
+
+<ResponseField name="ensureSignedIn" type="boolean">
+  When `true`, unauthenticated requests are automatically redirected to the WorkOS sign-in page. Defaults to `false`, which allows your loader to handle both authenticated and unauthenticated states.
+</ResponseField>
+
+<ResponseField name="debug" type="boolean">
+  When `true`, AuthKit logs additional diagnostic information to the server console. Useful for troubleshooting session issues during development. Defaults to `false`.
+</ResponseField>
+
+<ResponseField name="onSessionRefreshError" type="(options: RefreshErrorOptions) => void | Response | Promise<void | Response>">
+  Called when a session token refresh fails. Receives a [`RefreshErrorOptions`](#refresherroroptions) object. You may return a `Response` to override the default error handling (e.g. redirect to a custom error page), or return `void` / `undefined` to use the default behaviour. For transient errors (`isTransient: true`) the existing session is preserved; for terminal errors it is destroyed.
+</ResponseField>
+
+<ResponseField name="onSessionRefreshSuccess" type="(options: RefreshSuccessOptions) => void | Promise<void>">
+  Called after a session token is successfully refreshed. Receives a [`RefreshSuccessOptions`](#refreshsuccessoptions) object. Use this hook to update server-side state (e.g. activity timestamps) after a refresh.
+</ResponseField>
+
+<ResponseField name="storage" type="SessionStorage">
+  A custom Remix `SessionStorage` implementation. Must be provided together with `cookie`. When omitted, AuthKit uses its own default session storage.
+</ResponseField>
+
+<ResponseField name="cookie" type="SessionIdStorageStrategy['cookie']">
+  Custom cookie configuration. When provided without `storage`, applies to the default session storage. When provided alongside `storage`, passed to your custom storage implementation.
+</ResponseField>
+
+---
+
+## HandleAuthOptions
+
+Options accepted by `authLoader` (the callback-route handler). The `storage` / `cookie` union mirrors the one on [`AuthKitLoaderOptions`](#authkitloaderoptions).
+
+```typescript
+type HandleAuthOptions = {
+  returnPathname?: string;
+  onSuccess?: (data: AuthLoaderSuccessData) => void | Promise<void>;
+} & (
+  | { storage?: never; cookie?: SessionIdStorageStrategy['cookie'] }
+  | { storage: SessionStorage; cookie: SessionIdStorageStrategy['cookie'] }
+);
+```
+
+<ResponseField name="returnPathname" type="string">
+  The path to redirect the user to after a successful sign-in. Defaults to the pathname stored in the session state parameter, or `/` if none is present.
+</ResponseField>
+
+<ResponseField name="onSuccess" type="(data: AuthLoaderSuccessData) => void | Promise<void>">
+  An async hook called after WorkOS has confirmed the authentication and the session has been written. Receives an [`AuthLoaderSuccessData`](#authloadersuccessdata) object. Use it to seed user records in your own database, fire analytics events, etc.
+</ResponseField>
+
+<ResponseField name="storage" type="SessionStorage">
+  A custom Remix `SessionStorage` implementation. Must be provided together with `cookie`.
+</ResponseField>
+
+<ResponseField name="cookie" type="SessionIdStorageStrategy['cookie']">
+  Custom cookie configuration passed to the session storage.
+</ResponseField>
+
+---
+
+## AuthLoaderSuccessData
+
+The data object passed to the `onSuccess` callback of [`HandleAuthOptions`](#handleauthoptions) after a successful authentication callback.
+
+```typescript
+interface AuthLoaderSuccessData {
+  accessToken: string;
+  impersonator: Impersonator | null;
+  oauthTokens: OauthTokens | null;
+  refreshToken: string;
+  user: User;
+  organizationId: string | null;
+}
+```
+
+<ResponseField name="accessToken" type="string" required>
+  The short-lived WorkOS access token (a signed JWT) for the newly authenticated session.
+</ResponseField>
+
+<ResponseField name="impersonator" type="Impersonator | null" required>
+  Impersonator details when a WorkOS admin initiated the session on behalf of a user; otherwise `null`. See [`Impersonator`](#impersonator).
+</ResponseField>
+
+<ResponseField name="oauthTokens" type="OauthTokens | null" required>
+  OAuth tokens for the upstream identity provider (e.g. Google, Microsoft) when the user authenticated via OAuth with token access enabled; otherwise `null`. See the [WorkOS Node SDK docs](https://workos.com/docs/reference/client-libraries) for the `OauthTokens` shape.
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string" required>
+  The long-lived refresh token stored in the encrypted session cookie, used to silently renew the access token.
+</ResponseField>
+
+<ResponseField name="user" type="User" required>
+  The authenticated WorkOS `User` object.
+</ResponseField>
+
+<ResponseField name="organizationId" type="string | null" required>
+  The organization the user was authenticated into, or `null` when the session is not organization-scoped.
+</ResponseField>
+
+---
+
+## Impersonator
+
+Details about the WorkOS dashboard administrator who is impersonating an end user. Present on `AuthorizedData`, `AuthLoaderSuccessData`, `RefreshSuccessOptions`, and the session object whenever an impersonation session is active.
+
+```typescript
+interface Impersonator {
+  email: string;
+  reason: string | null;
+}
+```
+
+<ResponseField name="email" type="string" required>
+  The email address of the WorkOS admin performing the impersonation.
+</ResponseField>
+
+<ResponseField name="reason" type="string | null" required>
+  An optional reason the admin supplied when starting the impersonation session. `null` when no reason was recorded.
+</ResponseField>
+
+---
+
+## AuthKitConfig
+
+The full set of configuration keys understood by AuthKit. Pass a `Partial<AuthKitConfig>` to [`configure()`](/api-reference/configure) to override individual values programmatically.
+
+```typescript
+interface AuthKitConfig {
+  clientId: string;
+  apiKey: string;
+  redirectUri: string;
+  cookiePassword: string;
+  apiHostname?: string;
+  apiHttps: boolean;
+  apiPort?: number;
+  issuer?: string | string[];
+  cookieMaxAge: number;
+  cookieName: string;
+}
+```
+
+<ResponseField name="clientId" type="string" required>
+  Your WorkOS Client ID. Equivalent to the `WORKOS_CLIENT_ID` environment variable.
+</ResponseField>
+
+<ResponseField name="apiKey" type="string" required>
+  Your WorkOS secret API key. Equivalent to the `WORKOS_API_KEY` environment variable.
+</ResponseField>
+
+<ResponseField name="redirectUri" type="string" required>
+  The absolute callback URL registered in your WorkOS dashboard. Equivalent to `WORKOS_REDIRECT_URI`.
+</ResponseField>
+
+<ResponseField name="cookiePassword" type="string" required>
+  The secret used to encrypt the session cookie. Must be at least 32 characters. Equivalent to `WORKOS_COOKIE_PASSWORD`.
+</ResponseField>
+
+<ResponseField name="cookieName" type="string">
+  Name of the session cookie. Defaults to `"wos-session"`. Equivalent to `WORKOS_COOKIE_NAME`.
+</ResponseField>
+
+<ResponseField name="cookieMaxAge" type="number">
+  Lifetime of the session cookie in seconds. Defaults to `34560000` (400 days — the maximum allowed by Chrome). Equivalent to `WORKOS_COOKIE_MAX_AGE`.
+</ResponseField>
+
+<ResponseField name="apiHostname" type="string">
+  Hostname for WorkOS API requests. Defaults to `"api.workos.com"`. Equivalent to `WORKOS_API_HOSTNAME`.
+</ResponseField>
+
+<ResponseField name="apiHttps" type="boolean">
+  Whether to use HTTPS for API requests. Defaults to `true`. Equivalent to `WORKOS_API_HTTPS`.
+</ResponseField>
+
+<ResponseField name="apiPort" type="number">
+  Port for WorkOS API requests. Only needed when targeting a non-standard port. Equivalent to `WORKOS_API_PORT`.
+</ResponseField>
+
+<ResponseField name="issuer" type="string | string[]">
+  Expected `iss` claim of WorkOS access tokens. Accepts a single issuer string or an array of accepted issuers. When not set, the issuer claim is not validated. Set `WORKOS_ISSUER` to a comma-separated string to configure multiple issuers via the environment.
+</ResponseField>
+
+---
+
+## RefreshErrorOptions
+
+Passed to the `onSessionRefreshError` callback in [`AuthKitLoaderOptions`](#authkitloaderoptions) when a token refresh attempt fails.
+
+```typescript
+interface RefreshErrorOptions {
+  error: unknown;
+  request: Request;
+  sessionData: SessionData;
+  isTransient: boolean;
+}
+```
+
+<ResponseField name="error" type="unknown" required>
+  The raw error thrown during the refresh attempt. Cast or inspect this to determine the root cause.
+</ResponseField>
+
+<ResponseField name="request" type="Request" required>
+  The Remix `Request` object for the current route request, useful for extracting URL or header context when deciding how to handle the error.
+</ResponseField>
+
+<ResponseField name="sessionData" type="SessionData" required>
+  The session data at the time of the failure. Contains whatever was stored in the session before the refresh was attempted.
+</ResponseField>
+
+<ResponseField name="isTransient" type="boolean" required>
+  `true` when the failure is considered transient — e.g. a network error, timeout, HTTP 429, or 5xx response from the WorkOS API. When `true`, AuthKit preserves the existing session so the user can retry. `false` for terminal failures (invalid/expired tokens), where the session is destroyed and the user must re-authenticate.
+</ResponseField>
+
+---
+
+## RefreshSuccessOptions
+
+Passed to the `onSessionRefreshSuccess` callback in [`AuthKitLoaderOptions`](#authkitloaderoptions) after a token is successfully refreshed.
+
+```typescript
+interface RefreshSuccessOptions {
+  accessToken: string;
+  user: User;
+  impersonator: Impersonator | null;
+  organizationId: string | null;
+}
+```
+
+<ResponseField name="accessToken" type="string" required>
+  The new access token issued by the refresh.
+</ResponseField>
+
+<ResponseField name="user" type="User" required>
+  The WorkOS `User` object associated with the refreshed session.
+</ResponseField>
+
+<ResponseField name="impersonator" type="Impersonator | null" required>
+  Impersonator details if the session is an impersonation session; otherwise `null`.
+</ResponseField>
+
+<ResponseField name="organizationId" type="string | null" required>
+  The organization the session is scoped to after the refresh, or `null` for sessions not tied to an organization.
+</ResponseField>
+
+---
+
+<Note>
+  The `User` and `OauthTokens` types used throughout this library are imported directly from `@workos-inc/node`. Refer to the [WorkOS Node SDK documentation](https://workos.com/docs/reference/client-libraries) for their complete field definitions.
+</Note>

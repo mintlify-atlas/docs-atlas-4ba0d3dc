@@ -1,0 +1,78 @@
+---
+title: "getWorkOS — Access the WorkOS SDK Instance"
+sidebarTitle: "getWorkOS"
+description: "getWorkOS returns the lazily initialized WorkOS SDK client configured with your API key, for direct access to WorkOS APIs beyond what authkitLoader provides."
+---
+
+`getWorkOS` returns the singleton `WorkOS` client instance from the [`@workos-inc/node`](https://github.com/workos/workos-node) SDK, already configured with the credentials and API settings AuthKit resolved from your environment or [`configure()`](/api-reference/configure) call. Use it whenever you need to call WorkOS APIs directly — for example, fetching organizations, listing users, managing directory sync, or performing any operation that `authkitLoader` does not expose out of the box.
+
+```typescript
+import { getWorkOS } from '@workos-inc/authkit-remix';
+```
+
+## Signature
+
+```typescript
+getWorkOS(): WorkOS
+```
+
+## Return value
+
+Returns a `WorkOS` instance from `@workos-inc/node`. The instance is initialized with the following settings read from AuthKit's configuration:
+
+| WorkOS constructor option | AuthKit config key | Description |
+|---|---|---|
+| First argument (`apiKey`) | `apiKey` | Your WorkOS secret API key. |
+| `apiHostname` | `apiHostname` | Hostname for API requests (default `api.workos.com`). |
+| `https` | `apiHttps` | Whether to use HTTPS (default `true`). |
+| `port` | `apiPort` | Optional port override for API requests. |
+
+The client also sets `appInfo` to `{ name: 'authkit-remix', version: '<current version>' }` so WorkOS can attribute requests to this library.
+
+## Usage
+
+```typescript
+import { getWorkOS } from '@workos-inc/authkit-remix';
+
+// In a Remix loader or action
+export async function loader() {
+  const workos = getWorkOS();
+
+  // List organizations
+  const { data: organizations } = await workos.organizations.listOrganizations();
+
+  return { organizations };
+}
+```
+
+```typescript
+import { getWorkOS } from '@workos-inc/authkit-remix';
+
+// Access user management APIs
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const userId = formData.get('userId') as string;
+
+  const workos = getWorkOS();
+  const user = await workos.userManagement.getUser(userId);
+
+  return { user };
+}
+```
+
+## When to use
+
+`authkitLoader` covers the most common authentication flows — session validation, token refresh, and access control — and is the right choice for protecting routes. Reach for `getWorkOS` when you need to call WorkOS APIs that go beyond authentication, such as:
+
+- **Organizations** — `workos.organizations.*`
+- **Directory Sync** — `workos.directorySync.*`
+- **Audit Log** — `workos.auditLogs.*`
+- **User Management** — `workos.userManagement.*` (for administrative operations)
+- **SSO** — `workos.sso.*`
+- **Webhooks** — `workos.webhooks.*`
+
+Refer to the [WorkOS Node SDK documentation](https://workos.com/docs/reference/client-libraries) for the full API surface available on the returned `WorkOS` instance.
+
+<Note>
+  The `WorkOS` instance is created lazily on the first call to `getWorkOS()` and reused on every subsequent call. Make sure [`configure()`](/api-reference/configure) has been called (or the corresponding environment variables are set) before `getWorkOS` is first invoked — typically before any route loaders or actions run.
+</Note>

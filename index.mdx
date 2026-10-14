@@ -1,20 +1,88 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "AuthKit Remix: Authentication for Remix Applications"
+sidebarTitle: "Home"
+description: "Add WorkOS & AuthKit authentication to your Remix app with encrypted session management, automatic token refresh, and PKCE-secured sign-in flows."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+AuthKit Remix is the official authentication library for integrating [WorkOS & AuthKit](https://workos.com) into [Remix](https://remix.run) applications. It provides drop-in loader helpers, a callback route handler, and encrypted cookie-based session management — so you can add enterprise-grade authentication without building the plumbing yourself.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Installation" icon="package" href="/installation">
+    Install the package and configure your environment variables in minutes.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up a fully working authenticated Remix app in a few steps.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/authkit-loader">
+    Explore every exported function, option, and TypeScript type.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/environment-variables">
+    Configure AuthKit via environment variables or programmatic options.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What's included
+
+AuthKit Remix ships everything needed for a production authentication flow:
+
+<CardGroup cols={2}>
+  <Card title="authkitLoader" icon="rotate" href="/api-reference/authkit-loader">
+    Route loader with automatic session refresh and auth-aware data loading.
+  </Card>
+  <Card title="authLoader" icon="arrow-right-to-bracket" href="/api-reference/auth-loader">
+    OAuth callback handler that exchanges the authorization code for a session.
+  </Card>
+  <Card title="Sign-in & Sign-up URLs" icon="link" href="/api-reference/get-sign-in-url">
+    PKCE-secured authorization URLs with browser-bound cookie verification.
+  </Card>
+  <Card title="Session Storage" icon="database" href="/configuration/session-storage">
+    Encrypted cookie sessions with support for custom backends like Redis.
+  </Card>
+  <Card title="Organization Switching" icon="building" href="/api-reference/switch-to-organization">
+    Switch the active session to a different WorkOS organization.
+  </Card>
+  <Card title="withAuth" icon="shield-halved" href="/api-reference/with-auth">
+    Low-level auth accessor for advanced loaders and API routes.
+  </Card>
+</CardGroup>
+
+## Quick look
+
+Add authentication to any Remix route loader with a single call:
+
+```typescript app/routes/_index.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) => authkitLoader(args);
+
+export default function HomePage() {
+  const { user } = useLoaderData<typeof loader>();
+
+  return (
+    <div>
+      {user ? (
+        <p>Welcome back, {user.firstName}!</p>
+      ) : (
+        <a href="/sign-in">Sign in</a>
+      )}
+    </div>
+  );
+}
+```
+
+<Steps>
+  <Step title="Install the package">
+    Add `@workos-inc/authkit-remix` to your Remix project. See the [Installation](/installation) guide.
+  </Step>
+  <Step title="Set environment variables">
+    Configure your WorkOS credentials and cookie password. See [Environment Variables](/configuration/environment-variables).
+  </Step>
+  <Step title="Add the callback route">
+    Create a route that handles the OAuth callback. See [Callback Route](/guides/callback-route).
+  </Step>
+  <Step title="Protect your routes">
+    Use `authkitLoader` in your loaders to gate access. See [Protecting Routes](/guides/protecting-routes).
+  </Step>
+</Steps>

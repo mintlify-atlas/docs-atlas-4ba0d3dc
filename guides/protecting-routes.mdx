@@ -1,0 +1,181 @@
+---
+title: "Protect Remix Routes with AuthKit Authentication"
+sidebarTitle: "Protecting Routes"
+description: "Use authkitLoader with ensureSignedIn to redirect unauthenticated users to WorkOS AuthKit, and access user data like role, permissions, and organization in your loaders."
+---
+
+`authkitLoader` is the primary way to bring authentication into your Remix routes. It automatically reads the session cookie, validates the access token, refreshes it when expired, and writes an updated cookie on the response. You can use it in two modes: optional authentication, where the page is visible to everyone but shows richer content for signed-in users, and required authentication, where unauthenticated visitors are redirected straight to WorkOS AuthKit.
+
+## Optional Authentication
+
+Without any additional options, `authkitLoader` makes authentication data available to your component but never redirects. The `user` field is `null` when no session exists, letting you render a signed-in and signed-out view from the same route.
+
+```typescript
+// app/routes/_index.tsx
+import type { ActionFunctionArgs, LoaderFunctionArgs } from '@remix-run/node';
+import { Form, useLoaderData } from '@remix-run/react';
+import { signOut, authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) => authkitLoader(args);
+
+export async function action({ request }: ActionFunctionArgs) {
+  return await signOut(request);
+}
+
+export default function HomePage() {
+  const { user } = useLoaderData<typeof loader>();
+
+  if (!user) {
+    return (
+      <>
+        <a href="/sign-in">Log in</a>
+        <br />
+        <a href="/sign-up">Sign Up</a>
+      </>
+    );
+  }
+
+  return (
+    <Form method="post">
+      <p>Welcome back{user.firstName && `, ${user.firstName}`}</p>
+      <button type="submit">Sign out</button>
+    </Form>
+  );
+}
+```
+
+## Required Authentication
+
+Pass `{ ensureSignedIn: true }` to automatically redirect unauthenticated visitors to WorkOS AuthKit. Users who complete sign-in are returned to the original URL they tried to access.
+
+```typescript
+// app/routes/dashboard.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, { ensureSignedIn: true });
+
+export default function Dashboard() {
+  const { user } = useLoaderData<typeof loader>();
+
+  return <h1>Hello, {user.firstName}</h1>;
+}
+```
+
+<Note>
+  When `ensureSignedIn` is `true`, the current URL's pathname and search params are preserved and encrypted into the PKCE cookie. After authentication, users are returned to exactly the route they tried to visit — no extra configuration required.
+</Note>
+
+## Accessing Auth Data
+
+`authkitLoader` merges all authentication fields directly into your loader data. Every field is accessible via `useLoaderData`:
+
+| Field | Type | Description |
+|---|---|---|
+| `user` | `User \| null` | The WorkOS user object, or `null` when not signed in |
+| `sessionId` | `string \| null` | The WorkOS session ID |
+| `organizationId` | `string \| null` | The ID of the user's active organization |
+| `role` | `string \| null` | The user's primary role in the active organization |
+| `roles` | `string[] \| null` | All roles the user holds in the active organization |
+| `permissions` | `string[]` | The user's permissions derived from their roles |
+| `entitlements` | `string[]` | Feature entitlements for the user |
+| `impersonator` | `Impersonator \| null` | Set when a WorkOS admin is impersonating the user |
+
+```typescript
+// app/routes/profile.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, { ensureSignedIn: true });
+
+export default function Profile() {
+  const {
+    user,
+    sessionId,
+    organizationId,
+    role,
+    roles,
+    permissions,
+    entitlements,
+    impersonator,
+  } = useLoaderData<typeof loader>();
+
+  return (
+    <div>
+      <h1>{user.firstName} {user.lastName}</h1>
+      <p>Organization: {organizationId}</p>
+      <p>Role: {role}</p>
+      <p>Permissions: {permissions.join(', ')}</p>
+      {impersonator && (
+        <p>Impersonated by: {impersonator.email}</p>
+      )}
+    </div>
+  );
+}
+```
+
+## Custom Loader with Auth
+
+Pass a loader function as the second argument to `authkitLoader` when you need to fetch additional data alongside authentication. The function receives the standard Remix loader arguments extended with an `auth` object and a `getAccessToken` helper.
+
+```typescript
+// app/routes/dashboard.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(
+    args,
+    async ({ auth, getAccessToken, request, params }) => {
+      if (!auth.user) {
+        // Not signed in — return only public data
+        return { posts: await fetchPublicPosts() };
+      }
+
+      // Use getAccessToken() to make an authenticated server-side request
+      const accessToken = getAccessToken();
+      const posts = await fetch('/api/posts', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).then((r) => r.json());
+
+      return { posts };
+    },
+  );
+
+export default function Dashboard() {
+  // auth fields (user, role, etc.) are automatically merged into loader data
+  const { user, posts } = useLoaderData<typeof loader>();
+
+  return (
+    <div>
+      <h1>Welcome, {user?.firstName}</h1>
+      <ul>
+        {posts.map((post) => (
+          <li key={post.id}>{post.title}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+When `ensureSignedIn: true` is passed as the third argument alongside a custom loader, the `auth` parameter is typed as `AuthorizedData` (never `null`) and `getAccessToken()` is guaranteed to return a non-null `string`.
+
+```typescript
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(
+    args,
+    async ({ auth, getAccessToken }) => {
+      // auth.user is always defined here — no null check needed
+      const token = getAccessToken();
+      const data = await fetchProtectedData(token);
+      return { data };
+    },
+    { ensureSignedIn: true },
+  );
+```

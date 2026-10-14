@@ -1,0 +1,72 @@
+---
+title: "Configure AuthKit Remix with Environment Variables"
+sidebarTitle: "Environment Variables"
+description: "Reference for all WORKOS_ environment variables that configure @workos-inc/authkit-remix, including required credentials and optional session and API settings."
+---
+
+The simplest way to configure `@workos-inc/authkit-remix` is through environment variables in a `.env.local` file at the root of your project. The library reads these automatically at runtime via `process.env`, so no additional setup code is required — just set the variables and start your dev server.
+
+## Complete `.env.local` example
+
+The following shows every supported environment variable. The first four are required; the rest are optional and shown with their defaults.
+
+```bash .env.local
+# Required
+WORKOS_CLIENT_ID="client_..."              # Retrieved from the WorkOS dashboard
+WORKOS_API_KEY="sk_test_..."              # Retrieved from the WorkOS dashboard
+WORKOS_REDIRECT_URI="http://localhost:5173/callback"  # Configured in the WorkOS dashboard
+WORKOS_COOKIE_PASSWORD="<your-secure-password-min-32-chars>"  # Generate a secure password
+
+# Optional — shown with their default values
+WORKOS_COOKIE_NAME="wos-session"
+WORKOS_API_HTTPS="true"
+WORKOS_COOKIE_MAX_AGE="34560000"          # 400 days in seconds
+WORKOS_API_HOSTNAME="api.workos.com"
+
+# Optional — no defaults
+WORKOS_API_PORT=
+WORKOS_ISSUER=
+```
+
+## Variable reference
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `WORKOS_CLIENT_ID` | — | Yes | Your WorkOS Client ID, retrieved from the WorkOS dashboard. |
+| `WORKOS_API_KEY` | — | Yes | Your WorkOS API Key, retrieved from the WorkOS dashboard. |
+| `WORKOS_REDIRECT_URI` | — | Yes | The callback URL configured in the WorkOS dashboard. Must match exactly. |
+| `WORKOS_COOKIE_PASSWORD` | — | Yes | Password used to encrypt the session cookie. Must be at least 32 characters long. |
+| `WORKOS_COOKIE_NAME` | `wos-session` | No | Name of the session cookie stored in the browser. |
+| `WORKOS_API_HTTPS` | `true` | No | Whether to use HTTPS for WorkOS API requests. Set to `false` for local API proxies. |
+| `WORKOS_COOKIE_MAX_AGE` | `34560000` (400 days) | No | Maximum age of the session cookie in seconds. The access and refresh tokens govern actual session lifetime. |
+| `WORKOS_API_HOSTNAME` | `api.workos.com` | No | Hostname of the WorkOS API. Override only if you are proxying API traffic. |
+| `WORKOS_API_PORT` | — | No | Port to use for WorkOS API requests. Omit for standard HTTP/HTTPS ports. |
+| `WORKOS_ISSUER` | — | No | Expected `iss` claim of WorkOS access tokens. Accepts a single URL or a comma-separated list of URLs for multiple accepted issuers. |
+
+<Note>
+  **Configuration priority:** when the same option is supplied in multiple ways,
+  programmatic values set via `configure()` take the highest precedence, followed
+  by environment variables, and finally the built-in defaults for optional
+  settings.
+</Note>
+
+<Note>
+  `WORKOS_COOKIE_PASSWORD` must be **at least 32 characters** long. The library
+  will throw an error at startup if a shorter value is provided. You can generate
+  a suitable password with:
+
+  ```bash
+  openssl rand -base64 32
+  ```
+</Note>
+
+<Tip>
+  When `WORKOS_ISSUER` is not set, the `iss` claim on WorkOS access tokens is
+  **not validated**. For stricter security, set this variable to your WorkOS
+  issuer URL (e.g. `https://api.workos.com`). To accept tokens from multiple
+  issuers — for example during a migration — provide a comma-separated list:
+
+  ```bash
+  WORKOS_ISSUER="https://api.workos.com,https://auth.example.com"
+  ```
+</Tip>

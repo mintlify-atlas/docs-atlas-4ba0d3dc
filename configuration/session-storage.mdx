@@ -1,0 +1,141 @@
+---
+title: "Custom Session Storage for AuthKit Remix"
+sidebarTitle: "Session Storage"
+description: "Configure encrypted cookie session storage for AuthKit Remix, or provide a custom SessionStorage implementation backed by Redis, a database, or memory."
+---
+
+`@workos-inc/authkit-remix` manages authenticated sessions through Remix's `SessionStorage` interface. Out of the box it uses encrypted cookie-based storage, which requires no extra infrastructure and works in every deployment target. If your application has specific requirements — such as storing large payloads that exceed cookie size limits, centralising sessions in Redis for instant revocation, or simplifying testing with in-memory storage — you can swap in any `SessionStorage`-compatible implementation.
+
+## Default settings
+
+When no custom storage is provided, the library creates a `CookieSessionStorage` with the following options derived from your configuration:
+
+```typescript
+{
+  name: "wos-session",    // Overridden by WORKOS_COOKIE_NAME if set
+  path: "/",
+  httpOnly: true,
+  secure: true,           // Set to true when WORKOS_REDIRECT_URI uses HTTPS
+  sameSite: "lax",
+  maxAge: 34560000,       // 400 days — overridden by WORKOS_COOKIE_MAX_AGE if set
+  secrets: ["<your-cookie-password>"], // From WORKOS_COOKIE_PASSWORD
+}
+```
+
+The `secure` flag is inferred automatically from the protocol of your `WORKOS_REDIRECT_URI`: if the URI starts with `https:` the flag is `true`, otherwise it is `false`. The `secrets` array is populated from `cookiePassword` / `WORKOS_COOKIE_PASSWORD` and is used to sign and encrypt every session cookie.
+
+## Custom SessionStorage
+
+Pass a `storage` and `cookie` pair to both `authkitLoader` (used in your main routes) and `authLoader` (used in your callback route). Both helpers must receive the **same** storage instance so that the session written during the OAuth callback can be read by subsequent route loaders.
+
+The example below uses Remix's built-in `createMemorySessionStorage`, but the pattern is identical for any backend:
+
+```typescript
+import { createMemorySessionStorage } from "@remix-run/node";
+import { authkitLoader, authLoader } from "@workos-inc/authkit-remix";
+
+// Create an in-memory session store (useful for testing)
+const memoryStorage = createMemorySessionStorage({
+  cookie: {
+    name: "auth-session",
+    secrets: ["test-secret"],
+    sameSite: "lax",
+    path: "/",
+    httpOnly: true,
+    secure: false, // Use false for local testing without HTTPS
+    maxAge: 60 * 60 * 24, // 1 day
+  },
+});
+
+// In your root loader (e.g. app/root.tsx)
+export const loader = (args) =>
+  authkitLoader(args, {
+    storage: memoryStorage,
+    cookie: { name: "auth-session" },
+  });
+
+// In your callback route (e.g. app/routes/callback.ts)
+export const loader = authLoader({
+  storage: memoryStorage,
+  cookie: { name: "auth-session" },
+});
+```
+
+## Sharing storage configuration
+
+Rather than importing and threading the same storage object through every file, extract the creation logic into a shared helper. This keeps configuration in one place and makes it easy to swap backends later.
+
+```typescript
+// app/lib/session.ts
+import { createCookieSessionStorage } from "@remix-run/node";
+
+export function getAuthStorage() {
+  const storage = createCookieSessionStorage({
+    cookie: {
+      name: "my-custom-session",
+      secrets: [process.env.WORKOS_COOKIE_PASSWORD!],
+      sameSite: "lax",
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 400,
+    },
+  });
+
+  return { storage, cookie: { name: "my-custom-session" } };
+}
+```
+
+Then spread the result wherever you call `authkitLoader` or `authLoader`:
+
+```typescript
+// app/root.tsx
+import { getAuthStorage } from "~/lib/session";
+import { authkitLoader } from "@workos-inc/authkit-remix";
+import type { LoaderFunctionArgs } from "@remix-run/node";
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, {
+    ...getAuthStorage(),
+    // Additional options can be added here
+  });
+```
+
+```typescript
+// app/routes/callback.ts
+import { getAuthStorage } from "~/lib/session";
+import { authLoader } from "@workos-inc/authkit-remix";
+
+export const loader = authLoader({
+  ...getAuthStorage(),
+});
+```
+
+## Supported backends
+
+AuthKit works with any Remix `SessionStorage` implementation. Common options include:
+
+| Backend | Remix factory | Notes |
+|---|---|---|
+| **Cookie** (default) | `createCookieSessionStorage` | No extra infrastructure; limited to ~4 KB per cookie. |
+| **Memory** | `createMemorySessionStorage` | In-process only; sessions are lost on restart. Ideal for testing. |
+| **Redis** | Third-party (e.g. `remix-redis-session-storage`) | Persistent, shareable across instances; enables instant revocation. |
+| **Database** | Custom `SessionStorage` implementation | Full control; integrate with any ORM or data store. |
+
+<Note>
+  When deploying to **serverless environments** such as AWS Lambda, each cold
+  start spawns a new process that has no memory of previous requests. Pass the
+  exact same `storage` and `cookie` configuration to both your main route loaders
+  and your callback route loader so that every instance handles sessions
+  consistently.
+</Note>
+
+<Warning>
+  Custom session storage **does not replace** the PKCE flow cookie used during
+  login initiation. The PKCE verifier and return pathname are stored in a
+  separate, short-lived HttpOnly cookie managed by the SDK. Because this cookie
+  must be readable at the callback URL, **login initiation and the callback route
+  must share the same origin and cookie password**. If you route these through
+  different origins or use a different `cookiePassword` for each, the callback
+  will reject the code exchange and the sign-in will fail.
+</Warning>

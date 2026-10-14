@@ -1,0 +1,95 @@
+---
+title: "signOut — End a WorkOS Session and Clear Cookies"
+sidebarTitle: "signOut"
+description: "signOut terminates the active WorkOS session, destroys the encrypted session cookie, clears PKCE cookies, and redirects the user to the configured logout URL."
+---
+
+`signOut` terminates the user's active WorkOS session and clears all authentication state from the browser. It destroys the encrypted session cookie, clears any outstanding PKCE flow cookies left over from abandoned sign-in or sign-up flows, and then redirects the user. When an active session is found, `signOut` calls the WorkOS logout endpoint with the session ID, which invalidates the session server-side before issuing the redirect. Call `signOut` from a Remix action — typically triggered by a form submission.
+
+## Import
+
+```typescript
+import { signOut } from '@workos-inc/authkit-remix';
+```
+
+## Signature
+
+```typescript
+signOut(request: Request, options?: { returnTo?: string }): Promise<Response>
+```
+
+## Parameters
+
+<ParamField path="request" type="Request" required>
+  The incoming Remix `Request` object. Used to read the session cookie that identifies the active WorkOS session to terminate.
+</ParamField>
+
+<ParamField path="options.returnTo" type="string" optional>
+  The URL to redirect the user to after logout. The value must be listed under **Logout redirects** in your WorkOS Dashboard — see [configuring logout redirects](https://workos.com/docs/user-management/sessions/configuring-sessions/logout-redirect) for instructions. Without this option, the user is redirected to the homepage URL configured in your WorkOS Dashboard under **Redirect**.
+</ParamField>
+
+## Return value
+
+`signOut` returns a `Promise<Response>` — a Remix redirect response. Return or throw this value from your action to apply the cookie-clearing headers and send the user to the logout destination:
+
+```typescript
+return await signOut(request);
+// or
+throw await signOut(request);
+```
+
+## Usage
+
+The most common pattern is to trigger `signOut` from a Remix action attached to a sign-out form:
+
+```typescript
+// app/routes/_index.tsx
+import type { ActionFunctionArgs, LoaderFunctionArgs } from '@remix-run/node';
+import { Form, useLoaderData } from '@remix-run/react';
+import { signOut, authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) => authkitLoader(args);
+
+export async function action({ request }: ActionFunctionArgs) {
+  return await signOut(request);
+}
+
+export default function HomePage() {
+  const { user } = useLoaderData<typeof loader>();
+
+  if (!user) {
+    return <a href="/sign-in">Log in</a>;
+  }
+
+  return (
+    <Form method="post">
+      <p>Welcome back{user.firstName && `, ${user.firstName}`}</p>
+      <button type="submit">Sign out</button>
+    </Form>
+  );
+}
+```
+
+To redirect to a specific URL after logout, pass `returnTo`:
+
+```typescript
+export async function action({ request }: ActionFunctionArgs) {
+  return await signOut(request, { returnTo: 'https://example.com' });
+}
+```
+
+## `returnTo`
+
+The `returnTo` value is forwarded to the WorkOS logout endpoint and must be pre-registered in your WorkOS Dashboard. Navigate to **User Management → Sessions → Logout redirects** and add the URLs your application may redirect to after sign-out. Unregistered URLs will cause the WorkOS logout endpoint to reject the request.
+
+See the [WorkOS logout redirect documentation](https://workos.com/docs/user-management/sessions/configuring-sessions/logout-redirect) for full configuration instructions.
+
+Without a `returnTo` option, WorkOS redirects the user to the homepage URL you have configured in your Dashboard under **Redirect**.
+
+<Note>
+  `signOut` also clears any outstanding PKCE flow cookies set by `getSignInUrl` or `getSignUpUrl`. This means that if a user initiated but never completed a sign-in or sign-up flow, those abandoned flow cookies are cleaned up at logout time, preventing cookie accumulation.
+</Note>
+
+<Note>
+  If no active session cookie is found — for example, if the session has already expired or the cookie was cleared — `signOut` still destroys the session storage entry, clears any PKCE flow cookies, and redirects to `returnTo` or `/`. It is safe to call `signOut` unconditionally without first checking for an active session.
+</Note>

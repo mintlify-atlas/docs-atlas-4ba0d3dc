@@ -1,47 +1,195 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with AuthKit Remix in 5 Steps"
+sidebarTitle: "Quickstart"
+description: "Build a working Remix authentication flow with WorkOS AuthKit: install the library, set credentials, add the callback route, and protect your first route."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through building a complete, working authentication flow in a Remix application using `@workos-inc/authkit-remix`. By the end you'll have a callback route that handles the OAuth exchange, dedicated sign-in and sign-up routes that start PKCE flows, and a protected home page that greets signed-in users and offers sign-out — all wired up through WorkOS AuthKit.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+<Step title="Install the Package">
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+Add `@workos-inc/authkit-remix` to your Remix project using your preferred package manager.
 
-    ```bash
-    your-cli start
-    ```
-  </Step>
+<CodeGroup>
+
+```bash npm
+npm install @workos-inc/authkit-remix
+```
+
+```bash yarn
+yarn add @workos-inc/authkit-remix
+```
+
+```bash pnpm
+pnpm add @workos-inc/authkit-remix
+```
+
+</CodeGroup>
+</Step>
+
+<Step title="Set Environment Variables">
+
+Create a `.env.local` file in the root of your project and add the four required variables. Retrieve your Client ID, API Key, and Redirect URI from the [WorkOS Dashboard](https://dashboard.workos.com).
+
+```bash .env.local
+# Your WorkOS Client ID — from the WorkOS Dashboard API Keys page
+WORKOS_CLIENT_ID="client_..."
+
+# Your WorkOS API Key — from the WorkOS Dashboard API Keys page
+WORKOS_API_KEY="sk_test_..."
+
+# The callback URL registered in the WorkOS Dashboard under Redirects
+WORKOS_REDIRECT_URI="http://localhost:5173/callback"
+
+# A random secret for encrypting the session cookie (minimum 32 characters)
+WORKOS_COOKIE_PASSWORD="<your-secure-password-here>"
+```
+
+Generate a secure cookie password with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+</Step>
+
+<Step title="Add the Callback Route">
+
+AuthKit redirects users back to your app after they authenticate. Create a route whose path matches the `WORKOS_REDIRECT_URI` you registered. For example, if your redirect URI is `http://localhost:5173/callback`, create `app/routes/callback.ts`:
+
+```typescript app/routes/callback.ts
+import { authLoader } from '@workos-inc/authkit-remix';
+
+export const loader = authLoader();
+```
+
+`authLoader` validates the PKCE state cookie, exchanges the authorization code for tokens, writes the encrypted session cookie, and redirects the user to their originally requested path (defaulting to `/`).
+
+To always send users to a specific path after sign-in, pass the `returnPathname` option:
+
+```typescript app/routes/callback.ts
+import { authLoader } from '@workos-inc/authkit-remix';
+
+export const loader = authLoader({ returnPathname: '/dashboard' });
+```
+
+</Step>
+
+<Step title="Add Sign-In and Sign-Up Routes">
+
+Create dedicated routes for initiating authentication. Using separate routes (rather than generating URLs inside every page loader) ensures that PKCE flow cookies are only created when a user actually chooses to sign in, and that the flows remain browser-bound for security.
+
+```typescript app/routes/sign-in.ts
+import { redirect, type LoaderFunctionArgs } from '@remix-run/node';
+import { getSignInUrl } from '@workos-inc/authkit-remix';
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const { url, headers } = await getSignInUrl('/dashboard', request);
+  return redirect(url, { headers });
+}
+```
+
+```typescript app/routes/sign-up.ts
+import { redirect, type LoaderFunctionArgs } from '@remix-run/node';
+import { getSignUpUrl } from '@workos-inc/authkit-remix';
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const { url, headers } = await getSignUpUrl('/dashboard', request);
+  return redirect(url, { headers });
+}
+```
+
+<Note>
+  `getSignInUrl` and `getSignUpUrl` return an object with **both `url` and `headers`**. The `headers` object carries `Set-Cookie` values for the short-lived PKCE flow cookie. You must forward these headers on the redirect response — omitting them will cause the callback to fail because the PKCE verifier won't be found.
+</Note>
+
+<Warning>
+  Do **not** prefetch sign-in or sign-up routes (e.g. with Remix's `<Link prefetch="intent">`). Prefetching would trigger the loader and create a PKCE flow cookie before the user has chosen to sign in, wasting the 10-minute window and potentially accumulating stale flow cookies in the browser.
+</Warning>
+
+Link to these routes with a plain `<a>` element or `<Link reloadDocument>` from any page:
+
+```tsx
+<a href="/sign-in">Log in</a>
+<a href="/sign-up">Sign up</a>
+```
+
+</Step>
+
+<Step title="Protect a Route with authkitLoader">
+
+Use `authkitLoader` in any Remix route loader to access authentication state. For routes that require sign-in, pass `{ ensureSignedIn: true }` — unauthenticated visitors will be automatically redirected to WorkOS AuthKit. To show both signed-in and signed-out views on the same page, omit `ensureSignedIn` and check `user` in the component.
+
+The example below shows a home page that handles both cases, including a sign-out form:
+
+```tsx app/routes/_index.tsx
+import type { ActionFunctionArgs, LoaderFunctionArgs } from '@remix-run/node';
+import { Form, useLoaderData } from '@remix-run/react';
+import { authkitLoader, signOut } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) => authkitLoader(args);
+
+export async function action({ request }: ActionFunctionArgs) {
+  return await signOut(request);
+}
+
+export default function HomePage() {
+  // `user` is a WorkOS User object when signed in, or null when signed out.
+  // Other available fields: sessionId, organizationId, role, permissions,
+  // entitlements, and impersonator.
+  const { user } = useLoaderData<typeof loader>();
+
+  if (!user) {
+    return (
+      <>
+        <p>You are not signed in.</p>
+        <a href="/sign-in">Log in</a>
+        <br />
+        <a href="/sign-up">Sign up</a>
+      </>
+    );
+  }
+
+  return (
+    <Form method="post">
+      <p>Welcome back{user.firstName && `, ${user.firstName}`}!</p>
+      <button type="submit">Sign out</button>
+    </Form>
+  );
+}
+```
+
+For routes where unauthenticated access should be forbidden, enable `ensureSignedIn`:
+
+```tsx app/routes/dashboard.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, { ensureSignedIn: true });
+
+export default function Dashboard() {
+  // With ensureSignedIn: true, user is always a fully-populated User object.
+  const { user } = useLoaderData<typeof loader>();
+
+  return <h1>Hello, {user.firstName}!</h1>;
+}
+```
+
+</Step>
+
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## You're All Set
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+Your Remix application now has a complete WorkOS AuthKit authentication flow. Users can sign in and sign up via PKCE, their sessions are stored in encrypted cookies, access tokens are refreshed automatically, and you can protect any route with a single option.
+
+From here you may want to explore:
+
+- **Configuration reference** — customize cookie names, max-age, API hostname, and more using environment variables or the `configure` function.
+- **Organization switching** — use `switchToOrganization` to build multi-tenant experiences.
+- **Custom session storage** — swap the default cookie storage for memory-based, Redis-backed, or database-backed session stores.
+- **Access tokens** — use the `getAccessToken` helper inside `authkitLoader` to make server-side API calls without exposing tokens to the browser.

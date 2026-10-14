@@ -1,0 +1,73 @@
+---
+title: "getConfig — Read AuthKit Remix Configuration Values"
+sidebarTitle: "getConfig"
+description: "getConfig retrieves a configuration value by key, following the priority order: programmatic values, environment variables, then defaults."
+---
+
+`getConfig` is a typed accessor that reads a single AuthKit configuration value by its key. It walks a well-defined resolution chain — environment variables first, then values set via [`configure()`](/api-reference/configure), then built-in defaults — so you always get the effective value that AuthKit will use at runtime. If a required key cannot be resolved through any of these sources, `getConfig` throws an error rather than silently returning `undefined`.
+
+```typescript
+import { getConfig } from '@workos-inc/authkit-remix';
+```
+
+## Signature
+
+```typescript
+getConfig<K extends keyof AuthKitConfig>(key: K): AuthKitConfig[K]
+```
+
+## Parameters
+
+<ParamField query="key" type="keyof AuthKitConfig" required>
+  The configuration key to look up. Must be one of the keys defined on [`AuthKitConfig`](/api-reference/types#authkitconfig): `clientId`, `apiKey`, `redirectUri`, `cookiePassword`, `cookieName`, `apiHttps`, `cookieMaxAge`, `apiHostname`, `apiPort`, or `issuer`.
+</ParamField>
+
+## Return value
+
+Returns the resolved value for the given key, typed as `AuthKitConfig[K]`. The return type narrows automatically — for example, `getConfig('apiHttps')` returns `boolean` and `getConfig('apiPort')` returns `number | undefined`.
+
+## Resolution priority
+
+When `getConfig` is called with a key it resolves the value in the following order, stopping at the first match:
+
+1. **Environment variable** — AuthKit converts the camelCase key to a `WORKOS_<SCREAMING_SNAKE_CASE>` variable name (e.g. `apiKey` → `WORKOS_API_KEY`) and reads it from the configured value source (defaults to `process.env`, or a custom resolver supplied to `configure()`). String values for boolean and numeric keys are automatically coerced.
+
+2. **Programmatic config** — Values supplied via [`configure({ ... })`](/api-reference/configure) take effect when no environment variable is set.
+
+3. **Built-in defaults** — The following keys have defaults that apply when neither of the above sources provides a value:
+
+   | Key | Default |
+   |---|---|
+   | `cookieName` | `"wos-session"` |
+   | `cookieMaxAge` | `34560000` (400 days) |
+   | `apiHostname` | `"api.workos.com"` |
+   | `apiHttps` | `true` |
+
+4. **Throw** — If the key is one of the four *required* keys (`clientId`, `apiKey`, `redirectUri`, `cookiePassword`) and no value was found in steps 1–2, `getConfig` throws:
+
+   ```
+   Error: Missing required configuration value for apiKey (WORKOS_API_KEY).
+   ```
+
+## Example usage
+
+```typescript
+import { getConfig } from '@workos-inc/authkit-remix';
+
+// Read the configured redirect URI
+const redirectUri = getConfig('redirectUri');
+
+// Read the cookie name (returns the default "wos-session" if not overridden)
+const cookieName = getConfig('cookieName');
+
+// Read the API hostname
+const apiHostname = getConfig('apiHostname');
+```
+
+<Note>
+  `getConfig` is primarily intended for internal use by the AuthKit Remix library itself. For debugging purposes you can call it for individual keys; however, avoid logging sensitive keys such as `apiKey` or `cookiePassword` in production environments.
+</Note>
+
+<Warning>
+  Never log the full set of configuration values in production — the config contains secret keys (`apiKey`) and cookie encryption passwords (`cookiePassword`). Restrict any config inspection to local development or pre-production environments.
+</Warning>

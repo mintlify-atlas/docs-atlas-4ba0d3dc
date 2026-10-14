@@ -1,0 +1,78 @@
+---
+title: "getSignInUrl — Generate a PKCE Sign-In URL for AuthKit"
+sidebarTitle: "getSignInUrl"
+description: "getSignInUrl returns a WorkOS AuthKit authorization URL and cookie headers for PKCE-secured sign-in. Forward both url and headers in your Remix redirect response."
+---
+
+`getSignInUrl` builds a WorkOS AuthKit authorization URL using PKCE (Proof Key for Code Exchange) and returns it alongside the cookie headers required to complete the flow. The function generates a cryptographically random code verifier, stores it encrypted in a short-lived HttpOnly cookie, and embeds only a random state nonce in the URL itself — meaning a leaked callback URL can never be reused. Call `getSignInUrl` inside a dedicated Remix loader and immediately redirect the user, forwarding the returned `headers` on the redirect response.
+
+## Import
+
+```typescript
+import { getSignInUrl } from '@workos-inc/authkit-remix';
+```
+
+## Signature
+
+```typescript
+getSignInUrl(returnPathname?: string, request?: Request): Promise<GetAuthURLResult>
+```
+
+## Parameters
+
+<ParamField path="returnPathname" type="string" optional>
+  The pathname to redirect the user to after they successfully authenticate. Must be a same-origin pathname (e.g. `"/dashboard"`). Paths longer than 1 KiB in JSON representation are silently omitted; the callback will fall back to its configured `returnPathname` or `/` in that case.
+</ParamField>
+
+<ParamField path="request" type="Request" optional>
+  The incoming Remix `Request` object. Providing the request is strongly recommended: it allows the SDK to detect and prune stale PKCE cookies from previous abandoned flows (preventing HTTP 431 errors when five or more flow cookies accumulate), and it ensures cookie security attributes (e.g. `Secure`) correctly reflect the actual request protocol. Behind a TLS-terminating proxy, configure the proxy to set `X-Forwarded-Proto` to the trusted client-facing scheme.
+</ParamField>
+
+## Return value
+
+`getSignInUrl` returns a `Promise<GetAuthURLResult>` — an object with the following fields:
+
+<ResponseField name="url" type="string">
+  The complete WorkOS AuthKit authorization URL to redirect the user to. The URL contains only a random state nonce; the PKCE verifier and return pathname travel exclusively in the cookie.
+</ResponseField>
+
+<ResponseField name="headers" type="Headers">
+  A `Headers` instance that **must** be forwarded on the redirect response. It contains one or more `Set-Cookie` directives: the new PKCE flow cookie and, when stale flow cookies were pruned, their deletion directives. Omitting these headers will cause the callback to fail.
+</ResponseField>
+
+## Usage
+
+Create a dedicated sign-in route and immediately redirect to the authorization URL, forwarding `headers`:
+
+```typescript
+// app/routes/sign-in.ts
+import { redirect, type LoaderFunctionArgs } from '@remix-run/node';
+import { getSignInUrl } from '@workos-inc/authkit-remix';
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const { url, headers } = await getSignInUrl('/dashboard', request);
+  return redirect(url, { headers });
+}
+```
+
+Link to this route with a plain anchor element or `<Link reloadDocument>` — do not use Remix's default client-side prefetch:
+
+```tsx
+<a href="/sign-in">Sign in</a>
+```
+
+## Important notes
+
+- **The result is not a plain string.** `getSignInUrl` returns `{ url, headers }`, not a URL string. Destructure the object before passing to `redirect`.
+- **Always forward all headers on the redirect response.** The `headers` value may contain multiple `Set-Cookie` directives, including cookie deletions. Forwarding only `url` will cause the callback to fail with a missing-cookie error.
+- **Never serialize the result into loader JSON data.** Do not `return { url, headers }` from a loader expecting the browser to receive it — `headers` is a `Headers` instance and cannot be serialized, and the PKCE state must not be exposed to the client.
+- **Use a dedicated route.** Avoid generating sign-in URLs in every page loader. Calling `getSignInUrl` starts the ten-minute login window and creates a flow cookie; doing so on every page render accumulates unused cookies and wastes the login window.
+- **Do not prefetch this route.** Remix's `<Link prefetch>` and related APIs would trigger the loader without any user intent, starting the login window unnecessarily.
+
+<Note>
+  The authorization URL contains only a random state nonce. The PKCE code verifier and optional return pathname are encrypted with `iron-session` and stored in a short-lived, host-only HttpOnly cookie. The callback validates this cookie before exchanging any authorization code, supplies the verifier to WorkOS, and clears the flow cookie on both success and failure.
+</Note>
+
+<Warning>
+  During a rolling deployment you must deploy the sign-in initiation helpers and the callback route handler together on all instances simultaneously. Old in-flight sign-ins that lack the new PKCE browser cookie will intentionally fail closed. Do not run old and new handler versions side-by-side — users with in-flight sign-in flows at the moment of the cutover will need to restart their sign-in. Existing authenticated sessions are not affected.
+</Warning>

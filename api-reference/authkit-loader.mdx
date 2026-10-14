@@ -1,0 +1,282 @@
+---
+title: "authkitLoader — Remix Route Loader with Auth and Session Refresh"
+sidebarTitle: "authkitLoader"
+description: "authkitLoader wraps your Remix route loader with automatic session management, token refresh, and optional sign-in enforcement, returning user and auth data."
+---
+
+`authkitLoader` is the primary way to add authentication to a Remix route loader. It reads the encrypted session cookie, verifies the access token, and automatically refreshes it using the refresh token when it has expired. You can pass an optional custom loader function to combine your own data-fetching logic with the resolved auth context. When `ensureSignedIn` is set to `true`, unauthenticated visitors are redirected to the WorkOS hosted sign-in page and returned to the original URL after authenticating.
+
+```ts
+import { authkitLoader } from '@workos-inc/authkit-remix';
+```
+
+## Overloads
+
+`authkitLoader` has four call signatures depending on whether you need to enforce authentication and whether you supply a custom loader.
+
+### 1. No custom loader, sign-in enforced
+
+```ts
+authkitLoader(
+  loaderArgs: LoaderFunctionArgs,
+  options: AuthKitLoaderOptions & { ensureSignedIn: true },
+): Promise<DataWithResponseInit<AuthorizedData>>
+```
+
+The return type is always `AuthorizedData` because unauthenticated requests are redirected before the loader resolves.
+
+### 2. No custom loader, sign-in optional
+
+```ts
+authkitLoader(
+  loaderArgs: LoaderFunctionArgs,
+  options?: AuthKitLoaderOptions,
+): Promise<DataWithResponseInit<AuthorizedData | UnauthorizedData>>
+```
+
+The return type is a union — check `user !== null` to narrow to `AuthorizedData`.
+
+### 3. Custom loader, sign-in enforced
+
+```ts
+authkitLoader<Data>(
+  loaderArgs: LoaderFunctionArgs,
+  loader: (args: LoaderFunctionArgs & { auth: AuthorizedData; getAccessToken: () => string }) => LoaderReturnValue<Data>,
+  options: AuthKitLoaderOptions & { ensureSignedIn: true },
+): Promise<DataWithResponseInit<Data & AuthorizedData>>
+```
+
+The custom `loader` is only called for authenticated users. Its return value is merged with `AuthorizedData`.
+
+### 4. Custom loader, sign-in optional
+
+```ts
+authkitLoader<Data>(
+  loaderArgs: LoaderFunctionArgs,
+  loader: (args: LoaderFunctionArgs & { auth: AuthorizedData | UnauthorizedData; getAccessToken: () => string | null }) => LoaderReturnValue<Data>,
+  options?: AuthKitLoaderOptions,
+): Promise<DataWithResponseInit<Data & (AuthorizedData | UnauthorizedData)>>
+```
+
+The custom `loader` is called for both authenticated and unauthenticated users. Use `auth.user !== null` inside the loader to distinguish the two cases.
+
+## Parameters
+
+<ParamField path="loaderArgs" type="LoaderFunctionArgs" required>
+  The standard Remix loader arguments object (`{ request, params, context }`) passed directly from the route's exported `loader` function.
+</ParamField>
+
+<ParamField path="loader" type="function">
+  An optional custom loader function called after the session has been resolved. It receives all standard `LoaderFunctionArgs` plus two extra properties:
+
+  - `auth` — the resolved `AuthorizedData` or `UnauthorizedData` object.
+  - `getAccessToken` — a function that returns the raw access token string when the user is authenticated, or `null` when they are not. Use this to call backend APIs without exposing the token in the loader's return value.
+
+  The function may return a plain object, a `Response`, or the result of Remix's `data()` helper. Its return value is shallow-merged with the auth data before being sent to the client.
+</ParamField>
+
+<ParamField path="options" type="AuthKitLoaderOptions">
+  Optional configuration object. See [AuthKitLoaderOptions](#authkitloaderoptions) below.
+</ParamField>
+
+## AuthKitLoaderOptions
+
+<ParamField path="ensureSignedIn" type="boolean" default="false">
+  When `true`, unauthenticated requests are redirected to the WorkOS hosted sign-in page. The current URL pathname (and any query string) is preserved as the post-sign-in return destination. The overload's return type narrows to `AuthorizedData` when this is `true`.
+</ParamField>
+
+<ParamField path="debug" type="boolean" default="false">
+  Enables server-side console logging of session validation and token refresh events. Useful during development to trace authentication flow without diving into cookie internals.
+</ParamField>
+
+<ParamField path="onSessionRefreshError" type="(options: RefreshErrorOptions) => void | Response | Promise<void | Response>">
+  Called when an attempt to refresh the access token fails. Receives a `RefreshErrorOptions` object with the following fields:
+
+  - `error` — the underlying error thrown by the WorkOS SDK.
+  - `request` — the original `Request` object.
+  - `sessionData` — the raw Remix `SessionData` for the current cookie.
+  - `isTransient` — `true` when the failure is likely temporary (network error, timeout, HTTP 429, or 5xx). When `true`, the existing session cookie is preserved and the user is redirected to sign in without destroying the cookie, so a later request can retry the refresh. When `false`, the session is destroyed before redirecting.
+
+  Return a `Response` (e.g. a custom redirect) to override the default redirect-to-sign-in behaviour.
+</ParamField>
+
+<ParamField path="onSessionRefreshSuccess" type="(options: RefreshSuccessOptions) => void | Promise<void>">
+  Called immediately after a successful token refresh. Receives a `RefreshSuccessOptions` object with:
+
+  - `accessToken` — the newly issued access token.
+  - `user` — the authenticated `User` object.
+  - `impersonator` — the `Impersonator` object if an admin is impersonating this user, otherwise `null`.
+  - `organizationId` — the user's current organization ID, or `null`.
+
+  Use this hook to synchronise the new token with an external store (e.g. a database cache).
+</ParamField>
+
+<ParamField path="storage" type="SessionStorage">
+  A custom Remix `SessionStorage` instance. When provided, `cookie` is also required. Use this to plug in a database-backed or Redis-backed session store instead of the default cookie-based storage.
+</ParamField>
+
+<ParamField path="cookie" type="SessionIdStorageStrategy['cookie']">
+  Cookie configuration passed to the session storage layer. When `storage` is supplied, `cookie` is required. When used without `storage`, it can override cookie attributes such as `name`, `maxAge`, or `secure` on the default cookie store.
+</ParamField>
+
+## Return value
+
+`authkitLoader` always returns `Promise<DataWithResponseInit<AuthorizedData | UnauthorizedData>>` (narrowed by the overload). The data shape when the user is authenticated (`AuthorizedData`):
+
+<ResponseField name="user" type="User">
+  The authenticated WorkOS `User` object, including `id`, `email`, `firstName`, `lastName`, `profilePictureUrl`, and related fields.
+</ResponseField>
+
+<ResponseField name="sessionId" type="string">
+  The WorkOS session ID extracted from the `sid` claim of the access token. Use this to identify the session server-side, for example when calling the WorkOS session revocation API.
+</ResponseField>
+
+<ResponseField name="organizationId" type="string | null">
+  The ID of the organization the user is currently signed in to, or `null` if the user is not a member of any organization in the current session.
+</ResponseField>
+
+<ResponseField name="role" type="string | null">
+  The user's primary role slug within the current organization, or `null` if no role is set.
+</ResponseField>
+
+<ResponseField name="roles" type="string[] | null">
+  All role slugs assigned to the user in the current organization, or `null` if no roles are set.
+</ResponseField>
+
+<ResponseField name="permissions" type="string[]">
+  An array of permission slugs granted to the user. Empty array when no permissions are configured.
+</ResponseField>
+
+<ResponseField name="entitlements" type="string[]">
+  An array of entitlement slugs assigned to the user. Empty array when no entitlements are configured.
+</ResponseField>
+
+<ResponseField name="impersonator" type="Impersonator | null">
+  When a WorkOS admin is impersonating this user, contains an object with `email` (the admin's email) and `reason` (the impersonation reason, or `null`). Otherwise `null`.
+</ResponseField>
+
+When the user is **not** authenticated (`UnauthorizedData`), every field above is `null`.
+
+## Examples
+
+### Basic usage — no authentication required
+
+Use `authkitLoader` directly in your route when you want to expose optional auth state to both signed-in and anonymous visitors.
+
+```ts
+// app/routes/_index.tsx
+import { authkitLoader } from '@workos-inc/authkit-remix';
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+
+export async function loader(args: LoaderFunctionArgs) {
+  return authkitLoader(args);
+}
+
+export default function Index() {
+  const { user } = useLoaderData<typeof loader>();
+
+  return (
+    <div>
+      {user ? <p>Welcome, {user.firstName}!</p> : <p>You are not signed in.</p>}
+    </div>
+  );
+}
+```
+
+### With `ensureSignedIn: true`
+
+Unauthenticated visitors are automatically redirected to the WorkOS sign-in page. The TypeScript return type narrows to `AuthorizedData`, so `user` is guaranteed to be non-null.
+
+```ts
+// app/routes/dashboard.tsx
+import { authkitLoader } from '@workos-inc/authkit-remix';
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+
+export async function loader(args: LoaderFunctionArgs) {
+  return authkitLoader(args, { ensureSignedIn: true });
+}
+
+export default function Dashboard() {
+  const { user, organizationId, role } = useLoaderData<typeof loader>();
+
+  return (
+    <div>
+      <p>Signed in as {user.email}</p>
+      {organizationId && <p>Organization: {organizationId}</p>}
+      {role && <p>Role: {role}</p>}
+    </div>
+  );
+}
+```
+
+### Custom loader with auth context
+
+Supply a loader function as the second argument to fetch additional data alongside the auth context. The `auth` object and your returned data are shallow-merged automatically.
+
+```ts
+// app/routes/profile.tsx
+import { authkitLoader } from '@workos-inc/authkit-remix';
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+
+export async function loader(args: LoaderFunctionArgs) {
+  return authkitLoader(
+    args,
+    async ({ auth, getAccessToken, request }) => {
+      if (!auth.user) {
+        return { profile: null };
+      }
+
+      // Use getAccessToken() to call a protected backend API without
+      // including the raw token in the loader's return value.
+      const response = await fetch('https://api.example.com/profile', {
+        headers: { Authorization: `Bearer ${getAccessToken()}` },
+      });
+      const profile = await response.json();
+
+      return { profile };
+    },
+  );
+}
+
+export default function Profile() {
+  const { user, profile } = useLoaderData<typeof loader>();
+
+  return <pre>{JSON.stringify({ user, profile }, null, 2)}</pre>;
+}
+```
+
+### With `onSessionRefreshError` callback
+
+Handle token refresh failures gracefully — for example by logging to an external service or redirecting to a custom error page instead of the default sign-in redirect.
+
+```ts
+// app/routes/app.tsx
+import { authkitLoader } from '@workos-inc/authkit-remix';
+import { redirect } from '@remix-run/node';
+import type { LoaderFunctionArgs } from '@remix-run/node';
+
+export async function loader(args: LoaderFunctionArgs) {
+  return authkitLoader(args, {
+    ensureSignedIn: true,
+    onSessionRefreshError: async ({ error, isTransient, request }) => {
+      // Log the failure to your observability platform.
+      console.error('[auth] Session refresh failed', { isTransient, error });
+
+      if (isTransient) {
+        // For transient failures the session cookie is preserved automatically.
+        // Redirect to a "try again" page instead of forcing re-authentication.
+        return redirect('/error?reason=session_refresh_failed');
+      }
+      // Returning undefined falls back to the default: destroy the session
+      // cookie and redirect to sign in.
+    },
+  });
+}
+```
+
+<Note>
+  When a custom `loader` function is provided, its return value is **shallow-merged** with the auth data object (`AuthorizedData` or `UnauthorizedData`). If any key in your loader's return value conflicts with an auth field (e.g. `user`), the auth field takes precedence. To avoid collisions, namespace your application data under a single key (e.g. `{ appData: { ... } }`).
+</Note>

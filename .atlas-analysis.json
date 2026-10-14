@@ -1,0 +1,112 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "AuthKit Remix",
+  "projectDescription": "Authentication and session management helpers for integrating WorkOS & AuthKit into Remix applications.",
+  "theme": "luma",
+  "primaryColor": "#3fabec",
+  "lightColor": "#121212",
+  "darkColor": "#7c7c7c",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/programmatic-config",
+              "configuration/session-storage"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/callback-route",
+              "guides/protecting-routes",
+              "guides/sign-in-sign-out",
+              "guides/access-tokens",
+              "guides/organizations",
+              "guides/debugging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Loaders",
+            "pages": [
+              "api-reference/authkit-loader",
+              "api-reference/auth-loader",
+              "api-reference/with-auth"
+            ]
+          },
+          {
+            "group": "Auth Functions",
+            "pages": [
+              "api-reference/get-sign-in-url",
+              "api-reference/get-sign-up-url",
+              "api-reference/sign-out",
+              "api-reference/switch-to-organization"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "api-reference/configure",
+              "api-reference/get-config",
+              "api-reference/get-workos"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api-reference/types"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Drop-in authkitLoader for Remix route loaders with automatic token refresh",
+    "Callback route handler (authLoader) for OAuth code exchange",
+    "PKCE-based browser-bound sign-in flow with cookie-based verifier storage",
+    "Encrypted session storage using iron-session with customizable backends",
+    "getSignInUrl / getSignUpUrl returning URL + cookie headers to forward",
+    "signOut with optional returnTo redirect, clearing session and PKCE cookies",
+    "switchToOrganization for multi-tenant org switching with automatic re-auth",
+    "withAuth for low-level access token access without automatic refresh",
+    "Flexible configuration via environment variables or programmatic configure()",
+    "Support for custom SessionStorage implementations (memory, Redis, database)"
+  ],
+  "publicApiSurface": [
+    "authkitLoader(loaderArgs, loaderOrOptions?, options?)",
+    "authLoader(options?)",
+    "withAuth(args)",
+    "getSignInUrl(returnPathname?, request?)",
+    "getSignUpUrl(returnPathname?, request?)",
+    "signOut(request, options?)",
+    "switchToOrganization(request, organizationId, options?)",
+    "configure(configOrSource, source?)",
+    "getConfig(key)",
+    "getWorkOS()",
+    "GetAuthURLResult (type)",
+    "AuthKitLoaderOptions (type)",
+    "HandleAuthOptions (type)",
+    "AuthorizedData (type)",
+    "UnauthorizedData (type)",
+    "Impersonator (type)",
+    "AuthKitConfig (type)"
+  ]
+}

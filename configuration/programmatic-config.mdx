@@ -1,0 +1,90 @@
+---
+title: "Programmatic Configuration for AuthKit Remix"
+sidebarTitle: "Programmatic Config"
+description: "Use the configure() function to set WorkOS credentials and options in code instead of environment variables, with support for custom environment sources like Deno."
+---
+
+While environment variables are the quickest way to get started, `@workos-inc/authkit-remix` also exposes a `configure()` function that lets you supply credentials and options directly in code. This is useful in CI/CD pipelines where secrets are injected as runtime values rather than `.env` files, in monorepo setups where config is shared across packages, in non-Node.js runtimes that don't expose `process.env`, or simply when you prefer explicit, type-checked configuration over string-keyed env vars.
+
+## Basic usage
+
+Import `configure` from `@workos-inc/authkit-remix` and call it **before your routes run** — typically at the top of your app's root file or entry point.
+
+```typescript
+import { configure } from '@workos-inc/authkit-remix';
+
+configure({
+  clientId: 'client_1234567890',
+  apiKey: 'sk_test_1234567890',
+  redirectUri: 'http://localhost:5173/callback',
+  cookiePassword: 'your-secure-cookie-password-min-32-chars',
+  // Optional settings
+  cookieName: 'my-custom-cookie-name',
+  apiHttps: true,
+  cookieMaxAge: 60 * 60 * 24 * 30, // 30 days
+});
+```
+
+## Custom environment source
+
+For non-standard runtimes such as Deno or edge functions that don't surface `process.env`, you can pass a resolver function instead of a config object. The function receives an uppercase `WORKOS_`-prefixed key and should return its value (or `undefined`).
+
+```typescript
+import { configure } from '@workos-inc/authkit-remix';
+
+configure(key => Deno.env.get(key));
+```
+
+<Warning>
+  Support for custom environment sources in non-Node.js runtimes like Deno or
+  Edge functions is **experimental** and has not been extensively tested. You may
+  encounter unexpected issues in these environments. Feedback and contributions
+  from users who test in these runtimes are welcome.
+</Warning>
+
+## Combining explicit values with a custom source
+
+You can pass both a partial config object and a custom resolver together. Explicit values in the config object take precedence over whatever the resolver returns for the same key.
+
+```typescript
+import { configure } from '@workos-inc/authkit-remix';
+
+configure(
+  { clientId: 'client_1234567890' },
+  key => Deno.env.get(key),
+);
+```
+
+In this example `clientId` is pinned to the literal value while all other keys — `apiKey`, `redirectUri`, `cookiePassword`, and so on — are resolved through `Deno.env.get`.
+
+## Configuration priority
+
+When a configuration value is needed, `@workos-inc/authkit-remix` checks sources in the following order:
+
+1. **Programmatic values** supplied via `configure()` (highest priority)
+2. **Environment variables** prefixed with `WORKOS_` (via `process.env` or your custom source)
+3. **Built-in defaults** for optional settings (lowest priority)
+
+Required keys (`clientId`, `apiKey`, `redirectUri`, `cookiePassword`) that cannot be found in any source will cause the library to throw an error at the point they are first accessed.
+
+## Available options
+
+| Option | Environment Variable | Default | Required | Description |
+|---|---|---|---|---|
+| `clientId` | `WORKOS_CLIENT_ID` | — | Yes | Your WorkOS Client ID. |
+| `apiKey` | `WORKOS_API_KEY` | — | Yes | Your WorkOS API Key. |
+| `redirectUri` | `WORKOS_REDIRECT_URI` | — | Yes | The callback URL configured in the WorkOS dashboard. |
+| `cookiePassword` | `WORKOS_COOKIE_PASSWORD` | — | Yes | Password for session cookie encryption. Must be at least 32 characters. |
+| `cookieName` | `WORKOS_COOKIE_NAME` | `wos-session` | No | Name of the session cookie. |
+| `apiHttps` | `WORKOS_API_HTTPS` | `true` | No | Whether to use HTTPS for WorkOS API requests. |
+| `cookieMaxAge` | `WORKOS_COOKIE_MAX_AGE` | `34560000` (400 days) | No | Maximum age of the session cookie in seconds. |
+| `apiHostname` | `WORKOS_API_HOSTNAME` | `api.workos.com` | No | Hostname of the WorkOS API. |
+| `apiPort` | `WORKOS_API_PORT` | — | No | Port for WorkOS API requests. |
+| `issuer` | `WORKOS_ISSUER` | — | No | Expected `iss` claim of access tokens, or an array of accepted issuers. When not set, the issuer claim is not validated. |
+
+<Note>
+  A `getFullConfig()` function is available for debugging. It returns the
+  resolved value for every configuration key, merging programmatic values,
+  environment variables, and defaults, so you can quickly verify what the library
+  will use at runtime.
+</Note>

@@ -1,0 +1,101 @@
+---
+title: "Install @workos-inc/authkit-remix in Your Remix Project"
+sidebarTitle: "Installation"
+description: "Install the @workos-inc/authkit-remix package and configure your WorkOS credentials to enable authentication in your Remix application."
+---
+
+Getting `@workos-inc/authkit-remix` into your project takes only a few minutes. You'll install the package, supply four environment variables with credentials from your WorkOS dashboard, and then you'll be ready to add authenticated routes. This page walks through each step in detail.
+
+## Install the Package
+
+Add `@workos-inc/authkit-remix` to your project using your preferred package manager.
+
+<CodeGroup>
+
+```bash npm
+npm install @workos-inc/authkit-remix
+```
+
+```bash yarn
+yarn add @workos-inc/authkit-remix
+```
+
+```bash pnpm
+pnpm add @workos-inc/authkit-remix
+```
+
+</CodeGroup>
+
+### Peer Dependencies
+
+`@workos-inc/authkit-remix` requires the following peer dependencies to already be present in your project. A standard Remix 2 application created with `create-remix` already satisfies all of these.
+
+| Package | Required version |
+|---|---|
+| `@remix-run/node` | `^2.16.0` |
+| `react` | `^18.0` or `^19.0.0` |
+| `react-dom` | `^18.0` or `^19.0.0` |
+
+## Configure Environment Variables
+
+The library reads its configuration from four required environment variables. Create (or update) a `.env.local` file in the root of your Remix project and add the following:
+
+```bash .env.local
+# Your WorkOS Client ID — found on the WorkOS dashboard API Keys page
+WORKOS_CLIENT_ID="client_..."
+
+# Your WorkOS API Key — found on the WorkOS dashboard API Keys page
+WORKOS_API_KEY="sk_test_..."
+
+# The callback URL you registered in the WorkOS dashboard under Redirects
+WORKOS_REDIRECT_URI="http://localhost:5173/callback"
+
+# A long random secret used to encrypt the session cookie
+WORKOS_COOKIE_PASSWORD="<your-secure-password-here>"
+```
+
+### Where to Find Each Value
+
+- **`WORKOS_CLIENT_ID`** and **`WORKOS_API_KEY`** — Open your [WorkOS Dashboard](https://dashboard.workos.com), navigate to **API Keys**, and copy the values for your environment.
+- **`WORKOS_REDIRECT_URI`** — This must exactly match a URI you have registered in the WorkOS dashboard under **Redirects**. During local development this is typically `http://localhost:5173/callback`; in production it will be your public domain.
+- **`WORKOS_COOKIE_PASSWORD`** — A secret you generate yourself (see the tip below). This password is used by `iron-session` to seal and unseal the encrypted session cookie on every request.
+
+<Note>
+  `WORKOS_COOKIE_PASSWORD` must be **at least 32 characters** long. The library throws an error at startup if a shorter value is provided.
+</Note>
+
+<Tip>
+  Generate a cryptographically strong cookie password with Node.js in one command:
+
+  ```bash
+  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  ```
+
+  Copy the 64-character hex string into your `.env.local` file as the value of `WORKOS_COOKIE_PASSWORD`. Never commit this value to source control.
+</Tip>
+
+## Optional: Programmatic Configuration
+
+If you prefer to configure the library in code rather than through environment variables — for example, when loading secrets from a secrets manager at boot time — import and call `configure` before any authenticated routes are handled:
+
+```typescript
+import { configure } from '@workos-inc/authkit-remix';
+
+configure({
+  clientId: 'client_1234567890',
+  apiKey: 'sk_test_1234567890',
+  redirectUri: 'http://localhost:5173/callback',
+  cookiePassword: 'your-secure-cookie-password-min-32-chars',
+  // Optional overrides
+  cookieName: 'my-app-session',   // default: "wos-session"
+  cookieMaxAge: 60 * 60 * 24 * 30, // default: 34560000 (400 days)
+});
+```
+
+Programmatic values take priority over environment variables. See the configuration reference for the full list of available options.
+
+## Next Steps
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Add the callback route, create sign-in and sign-up routes, and protect your first Remix route with `authkitLoader`.
+</Card>

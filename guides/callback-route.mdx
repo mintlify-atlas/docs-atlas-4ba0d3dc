@@ -1,0 +1,131 @@
+---
+title: "Set Up the AuthKit OAuth Callback Route in Remix"
+sidebarTitle: "Callback Route"
+description: "Create the OAuth callback route in your Remix app using authLoader to exchange the authorization code, validate PKCE, and establish an encrypted session."
+---
+
+After a user authenticates with WorkOS AuthKit, the identity provider redirects them back to your application at a designated callback URL. This callback route is responsible for exchanging the short-lived authorization code for a session: it validates the PKCE cookie, calls the WorkOS token endpoint, encrypts the returned tokens into a secure session cookie, and redirects the user to their intended destination. Setting it up correctly is the foundation of your authentication flow.
+
+## Minimal Setup
+
+Import `authLoader` from `@workos-inc/authkit-remix` and export it as your route's `loader`. That single call handles everything — PKCE validation, code exchange, session encryption, and the post-login redirect.
+
+```typescript
+// app/routes/callback.ts
+import { authLoader } from '@workos-inc/authkit-remix';
+
+export const loader = authLoader();
+```
+
+## Matching the Redirect URI
+
+The route's URL must exactly match the `WORKOS_REDIRECT_URI` environment variable **and** the redirect URI configured in your WorkOS dashboard. If those three values don't agree, the callback will be rejected.
+
+For example, if your redirect URI is `http://localhost:5173/callback`, place the loader in `app/routes/callback.ts`. The Remix file-based router maps that file to the `/callback` path automatically.
+
+```bash
+WORKOS_REDIRECT_URI="http://localhost:5173/callback"
+```
+
+```
+app/
+└── routes/
+    └── callback.ts   ← handles GET /callback
+```
+
+## Options
+
+### Controlling the Post-Login Destination
+
+By default, users are redirected to `/` after a successful sign-in. Pass `returnPathname` to send them somewhere specific:
+
+```typescript
+// app/routes/callback.ts
+import { authLoader } from '@workos-inc/authkit-remix';
+
+export const loader = authLoader({ returnPathname: '/dashboard' });
+```
+
+<Note>
+  When `getSignInUrl` or `getSignUpUrl` is called with a `returnPathname` argument, that value is encrypted inside the PKCE cookie and takes precedence over the `returnPathname` option on `authLoader`. The `authLoader` value acts as a fallback when no per-flow path was stored — for example, when the return path exceeded the 1 KiB cookie budget.
+</Note>
+
+### Running Code After Authentication
+
+Use the `onSuccess` callback to execute server-side logic after the authorization code exchange succeeds — for example, persisting OAuth tokens to a database:
+
+```typescript
+// app/routes/callback.ts
+import { authLoader } from '@workos-inc/authkit-remix';
+
+export const loader = authLoader({
+  onSuccess: async ({ oauthTokens, user, accessToken, refreshToken, organizationId }) => {
+    await saveToDatabase({ userId: user.id, oauthTokens });
+  },
+});
+```
+
+`onSuccess` receives an `AuthLoaderSuccessData` object with the following fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `accessToken` | `string` | The new WorkOS access token |
+| `refreshToken` | `string` | The new WorkOS refresh token |
+| `user` | `User` | The authenticated user object |
+| `organizationId` | `string \| null` | The active organization, if any |
+| `impersonator` | `Impersonator \| null` | Set when a WorkOS admin is impersonating |
+| `oauthTokens` | `OauthTokens \| null` | Third-party OAuth tokens, if requested |
+
+## How PKCE Works in the Callback
+
+When a login flow starts, `getSignInUrl` or `getSignUpUrl` generates a random PKCE code verifier and a corresponding challenge. The URL sent to WorkOS carries only a random nonce as the OAuth `state`; the verifier and optional return path are encrypted into a short-lived, host-only `HttpOnly` cookie (prefixed `wos-auth-verifier-`).
+
+When the user arrives at the callback:
+
+<Steps>
+  <Step title="Validate the PKCE cookie">
+    The callback reads the cookie keyed by the `state` nonce and decrypts it to recover the code verifier.
+  </Step>
+  <Step title="Exchange the code">
+    The code verifier is passed to `authenticateWithCode`, which WorkOS uses to verify the PKCE challenge before issuing tokens.
+  </Step>
+  <Step title="Clear the flow cookie">
+    On success **or** failure, the PKCE cookie is immediately deleted (its `Max-Age` is set to `0`) to prevent replay.
+  </Step>
+  <Step title="Establish the session">
+    The access and refresh tokens are encrypted with `iron-session` and stored in the session cookie. The user is redirected to `returnPathname`.
+  </Step>
+</Steps>
+
+## Custom Session Storage
+
+By default the session is stored in an encrypted cookie managed by `iron-session`. You can swap in any Remix-compatible `SessionStorage` — for example, memory storage for testing or a Redis-backed store for production — by passing `storage` and `cookie` together:
+
+```typescript
+// app/routes/callback.ts
+import { createMemorySessionStorage } from '@remix-run/node';
+import { authLoader } from '@workos-inc/authkit-remix';
+
+const memoryStorage = createMemorySessionStorage({
+  cookie: {
+    name: 'auth-session',
+    secrets: ['test-secret'],
+    sameSite: 'lax',
+    path: '/',
+    httpOnly: true,
+    secure: false,
+    maxAge: 60 * 60 * 24,
+  },
+});
+
+export const loader = authLoader({
+  storage: memoryStorage,
+  cookie: { name: 'auth-session' },
+});
+```
+
+Pass the same `storage` and `cookie` configuration to `authkitLoader` in your root and protected routes so they all read from the same session store.
+
+<Note>
+  **Deployment note:** The login initiation helpers (`getSignInUrl`, `getSignUpUrl`) and the callback route share a secret — the PKCE cookie is bound to the cookie password and the request origin. Both must be deployed together. During a rolling deployment, any in-flight sign-ins that started against an old instance will fail at the callback on a new instance; affected users must restart the sign-in flow. Existing authenticated sessions are not affected.
+</Note>

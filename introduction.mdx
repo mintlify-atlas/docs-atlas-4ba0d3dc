@@ -1,0 +1,65 @@
+---
+title: "AuthKit Remix: WorkOS Authentication for Remix"
+sidebarTitle: "Introduction"
+description: "@workos-inc/authkit-remix provides authentication and encrypted session management for Remix apps using WorkOS & AuthKit. Learn what the library offers and how it works."
+---
+
+`@workos-inc/authkit-remix` is the official WorkOS authentication library for Remix applications. It handles the full lifecycle of user authentication — from initiating PKCE-based sign-in flows and processing OAuth callbacks, to storing encrypted sessions in cookies and automatically refreshing access tokens on every request. Rather than building these low-level concerns yourself, you drop in a few loaders and let the library keep your sessions secure, fresh, and consistent across every route.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="authkitLoader" icon="shield-halved">
+    The primary loader wrapper for authenticated Remix routes. Automatically validates sessions, refreshes expired access tokens, and returns structured auth data — including `user`, `sessionId`, `organizationId`, `role`, `permissions`, and `entitlements` — directly to your components via `useLoaderData`.
+  </Card>
+  <Card title="authLoader Callback" icon="arrow-right-to-bracket">
+    A ready-made loader factory (`authLoader()`) for your OAuth callback route. It validates the incoming authorization code with PKCE, exchanges it for tokens, writes the encrypted session cookie, and redirects the user to their intended destination.
+  </Card>
+  <Card title="PKCE Sign-In & Sign-Up" icon="lock">
+    `getSignInUrl` and `getSignUpUrl` generate WorkOS AuthKit authorization URLs with per-flow PKCE verifiers and state. Each call returns `{ url, headers }` — the headers carry the short-lived, HttpOnly PKCE cookie that must be forwarded to the browser to complete the flow securely.
+  </Card>
+  <Card title="Encrypted Cookie Sessions" icon="cookie">
+    Sessions are sealed with `iron-session` using your `WORKOS_COOKIE_PASSWORD`. The encrypted JWT stored in the cookie contains the access token and refresh token so that nothing sensitive is ever exposed to the client or logged in responses.
+  </Card>
+  <Card title="Organization Switching" icon="building">
+    `switchToOrganization` lets multi-tenant applications seamlessly switch a user's active organization. It refreshes the session against the new org context, updates the cookie, and optionally redirects to a `returnTo` path — all in a single server-side call.
+  </Card>
+  <Card title="withAuth" icon="key">
+    A lower-level escape hatch for advanced use cases such as API routes and custom middleware. `withAuth` reads the current session directly without refreshing tokens or managing cookies, returning auth data including the raw access token for immediate server-side use.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+Authentication in `@workos-inc/authkit-remix` follows a straightforward four-stage flow that keeps all secrets server-side.
+
+1. **Sign-in initiation** — A dedicated sign-in route calls `getSignInUrl` (or `getSignUpUrl`). The library generates a PKCE code verifier, encrypts it into a short-lived HttpOnly cookie, and returns the WorkOS AuthKit authorization URL. The response redirects the user to WorkOS with the state nonce, forwarding the PKCE cookie at the same time.
+
+2. **OAuth callback** — After the user authenticates, WorkOS redirects back to your callback route with a `code` and `state`. The `authLoader` factory validates the PKCE cookie that matches the state nonce, exchanges the code for an access token and refresh token, and clears the flow cookie.
+
+3. **Encrypted cookie session** — `authLoader` seals the access token, refresh token, and user profile into an `iron-session`-encrypted cookie and sets it on the response. The browser stores this cookie; no secrets are in the page HTML or loader JSON.
+
+4. **Automatic token refresh** — On every subsequent request, `authkitLoader` decrypts the cookie, verifies the access token against WorkOS's JWKS endpoint, and — if the token has expired — silently exchanges the refresh token for a new one, re-sealing the updated session into the cookie before responding.
+
+## Prerequisites
+
+Before integrating `@workos-inc/authkit-remix`, make sure you have:
+
+- **Node.js** 18 or later (the library targets `@remix-run/node ^2.16.0`)
+- **A Remix application** running React 18 or 19
+- **A WorkOS account** with a configured application — you will need:
+  - A **Client ID** from your WorkOS dashboard
+  - An **API Key** from your WorkOS dashboard
+  - A **Redirect URI** registered in the WorkOS dashboard (e.g. `http://localhost:5173/callback`)
+- A **strong random secret** (32+ characters) for cookie encryption
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="box-open" href="/installation">
+    Install the package and configure your WorkOS credentials via environment variables.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build a complete sign-in/sign-out flow and protect your first route in five steps.
+  </Card>
+</CardGroup>

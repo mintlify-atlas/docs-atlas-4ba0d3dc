@@ -1,72 +1,98 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "AuthKit Remix",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#3fabec",
+    "light": "#121212",
+    "dark": "#7c7c7c"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
+  "favicon": "https://media.brand.dev/5b3255c2-636c-46f0-9d05-6c683d8f012c.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://media.brand.dev/18263f56-3b58-44b7-95f3-567937e055a3.svg",
+    "dark": "https://media.brand.dev/18263f56-3b58-44b7-95f3-567937e055a3.svg"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:support@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/workos/authkit-remix"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/workos/authkit-remix"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/programmatic-config",
+              "configuration/session-storage"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/callback-route",
+              "guides/protecting-routes",
+              "guides/sign-in-sign-out",
+              "guides/access-tokens",
+              "guides/organizations",
+              "guides/debugging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Loaders",
+            "pages": [
+              "api-reference/authkit-loader",
+              "api-reference/auth-loader",
+              "api-reference/with-auth"
+            ]
+          },
+          {
+            "group": "Auth Functions",
+            "pages": [
+              "api-reference/get-sign-in-url",
+              "api-reference/get-sign-up-url",
+              "api-reference/sign-out",
+              "api-reference/switch-to-organization"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "api-reference/configure",
+              "api-reference/get-config",
+              "api-reference/get-workos"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api-reference/types"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

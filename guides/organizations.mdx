@@ -1,0 +1,137 @@
+---
+title: "Multi-Tenant Organization Switching with AuthKit"
+sidebarTitle: "Organizations"
+description: "Switch the active WorkOS organization in a user session using switchToOrganization, with automatic re-authentication for SSO and MFA enrollment requirements."
+---
+
+Multi-tenant applications often need users to operate under a specific organization context — for example, switching between a personal workspace and a company account. AuthKit Remix provides `switchToOrganization` to handle this seamlessly: it refreshes the session token for the target organization, updates the encrypted session cookie, and handles cases where the target organization requires SSO sign-in or MFA enrollment by automatically redirecting to WorkOS AuthKit.
+
+## Reading the Current Organization
+
+When a user is signed in, `authkitLoader` exposes the active organization's context alongside the user object. Access `organizationId`, `role`, and `roles` directly from loader data:
+
+```typescript
+// app/routes/workspace.tsx
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { useLoaderData } from '@remix-run/react';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, { ensureSignedIn: true });
+
+export default function Workspace() {
+  const { user, organizationId, role, roles, permissions } =
+    useLoaderData<typeof loader>();
+
+  return (
+    <div>
+      <h1>{user.firstName}'s Workspace</h1>
+      <p>Active organization: {organizationId}</p>
+      <p>Role: {role}</p>
+      <p>All roles: {roles?.join(', ')}</p>
+    </div>
+  );
+}
+```
+
+## Switching Organizations
+
+Call `switchToOrganization(request, organizationId)` inside a Remix `action` to change the active organization for the current session. The function calls the WorkOS token endpoint to obtain a new access token scoped to the target organization, then commits the updated session to the cookie.
+
+```typescript
+// app/routes/workspace.tsx
+import type { ActionFunctionArgs, LoaderFunctionArgs } from '@remix-run/node';
+import { Form, useLoaderData } from '@remix-run/react';
+import { authkitLoader, switchToOrganization } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, { ensureSignedIn: true });
+
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const organizationId = formData.get('organizationId') as string;
+
+  return switchToOrganization(request, organizationId);
+}
+
+export default function Workspace() {
+  const { organizationId } = useLoaderData<typeof loader>();
+
+  return (
+    <Form method="post">
+      <input type="hidden" name="organizationId" value="org_new_id" />
+      <p>Current org: {organizationId}</p>
+      <button type="submit">Switch organization</button>
+    </Form>
+  );
+}
+```
+
+## Redirect After Switch
+
+Pass `returnTo` as an option to redirect the user to a specific pathname after the organization switch completes:
+
+```typescript
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const organizationId = formData.get('organizationId') as string;
+
+  return switchToOrganization(request, organizationId, {
+    returnTo: '/dashboard',
+  });
+}
+```
+
+<Note>
+  The `returnTo` value is sanitized to a same-origin pathname before it is used. Absolute URLs and URLs with different origins are rejected, preventing open redirects. Only the pathname (and any query string) is preserved.
+</Note>
+
+## Automatic Re-Authentication
+
+Some organizations enforce SSO or require MFA enrollment before granting access. `switchToOrganization` handles both cases automatically:
+
+- If the target organization requires **SSO**, WorkOS returns an `sso_required` error. `switchToOrganization` catches this and redirects the user to WorkOS AuthKit to complete SSO sign-in.
+- If the target organization requires **MFA enrollment**, WorkOS returns an `mfa_enrollment` error. `switchToOrganization` catches this and redirects the user to AuthKit to enroll a second factor.
+
+In both cases the redirect carries the necessary PKCE cookies and will resume the session after the user completes the additional step. Your action code doesn't need any special handling — the re-authentication path is fully managed:
+
+```typescript
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const organizationId = formData.get('organizationId') as string;
+
+  // If org requires SSO or MFA, the user is automatically redirected to AuthKit.
+  // On success they return to your app with a token scoped to the new org.
+  return switchToOrganization(request, organizationId);
+}
+```
+
+## Response Shape
+
+When `returnTo` is **not** provided, `switchToOrganization` returns a data response with `{ success: true, auth }` containing the updated organization context. You can read this in a client-side `useFetcher` action to update the UI without a full page navigation:
+
+```typescript
+// app/routes/org-switcher.tsx
+import { useFetcher } from '@remix-run/react';
+import type { AuthorizedData } from '@workos-inc/authkit-remix';
+
+export default function OrgSwitcher({ organizations }: { organizations: { id: string; name: string }[] }) {
+  const fetcher = useFetcher<{ success: boolean; auth: AuthorizedData }>();
+
+  const currentOrg = fetcher.data?.auth?.organizationId;
+
+  return (
+    <div>
+      {organizations.map((org) => (
+        <fetcher.Form key={org.id} method="post" action="/switch-org">
+          <input type="hidden" name="organizationId" value={org.id} />
+          <button type="submit">{org.name}</button>
+        </fetcher.Form>
+      ))}
+      {currentOrg && <p>Switched to: {currentOrg}</p>}
+    </div>
+  );
+}
+```
+
+The `auth` object in the success response contains the same fields as `authkitLoader` data: `user`, `sessionId`, `organizationId`, `role`, `roles`, `permissions`, `entitlements`, and `impersonator`. The access token and refresh token remain server-side in the updated session cookie and are never included in this payload.

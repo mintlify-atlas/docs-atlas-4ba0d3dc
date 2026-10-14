@@ -1,0 +1,141 @@
+---
+title: "withAuth — Low-Level Auth Data Access for Remix Loaders"
+sidebarTitle: "withAuth"
+description: "withAuth reads the current session and returns auth data including the access token directly, without handling token refresh or cookie updates."
+---
+
+`withAuth` is the low-level alternative to `authkitLoader`. It reads the encrypted session cookie synchronously, decodes the access token claims, and returns the current auth state — including the raw access token — without performing any token refresh or writing any response headers. It is designed for use inside API-style loaders, resource routes, or advanced custom flows where you need direct access to the access token and are willing to manage the authentication lifecycle yourself.
+
+```ts
+import { withAuth } from '@workos-inc/authkit-remix';
+```
+
+## Signature
+
+```ts
+withAuth(args: LoaderFunctionArgs): Promise<UserInfo | NoUserInfo>
+```
+
+## When to use `withAuth` vs `authkitLoader`
+
+| Concern | `withAuth` | `authkitLoader` |
+|---|---|---|
+| Automatic token refresh | ❌ No | ✅ Yes |
+| Cookie management (Set-Cookie) | ❌ No | ✅ Yes |
+| Access token in return value | ✅ Yes (manual) | ❌ No (kept server-side via `getAccessToken()`) |
+| Redirect unauthenticated users | ❌ Manual | ✅ Via `ensureSignedIn: true` |
+| Custom loader merging | ❌ No | ✅ Yes |
+
+Use `withAuth` when:
+
+- You are building a **resource route or API route** and need the raw access token to forward to a downstream service.
+- You are implementing an **advanced custom flow** where you need full control over redirects and session handling.
+- You are inside a child route that is guaranteed to have a parent route already using `authkitLoader` for token refresh.
+
+Use `authkitLoader` for most application routes. It handles token refresh, writes the updated session cookie, and gives you access to the token via the `getAccessToken()` helper without exposing it to the client.
+
+## Parameters
+
+<ParamField path="args" type="LoaderFunctionArgs" required>
+  The standard Remix loader arguments object (`{ request, params, context }`) passed directly from the route's exported `loader` function. `withAuth` uses `args.request` to read the `Cookie` header.
+</ParamField>
+
+## Return value
+
+`withAuth` returns a `Promise` that resolves to either `UserInfo` (authenticated) or `NoUserInfo` (not authenticated or token expired).
+
+### UserInfo (authenticated)
+
+<ResponseField name="user" type="User">
+  The authenticated WorkOS `User` object, including `id`, `email`, `firstName`, `lastName`, `profilePictureUrl`, and related fields.
+</ResponseField>
+
+<ResponseField name="sessionId" type="string">
+  The WorkOS session ID extracted from the `sid` claim of the access token.
+</ResponseField>
+
+<ResponseField name="organizationId" type="string | undefined">
+  The ID of the organization the user is currently signed in to. `undefined` if the session is not scoped to an organization.
+</ResponseField>
+
+<ResponseField name="role" type="string | undefined">
+  The user's primary role slug within the current organization. `undefined` if no role is set.
+</ResponseField>
+
+<ResponseField name="roles" type="string[] | undefined">
+  All role slugs assigned to the user in the current organization. `undefined` if no roles are set.
+</ResponseField>
+
+<ResponseField name="permissions" type="string[] | undefined">
+  An array of permission slugs granted to the user. `undefined` if no permissions are configured.
+</ResponseField>
+
+<ResponseField name="entitlements" type="string[] | undefined">
+  An array of entitlement slugs assigned to the user. `undefined` if no entitlements are configured.
+</ResponseField>
+
+<ResponseField name="impersonator" type="Impersonator | undefined">
+  When a WorkOS admin is impersonating this user, contains an object with `email` (the admin's email) and `reason` (the impersonation reason, or `null`). `undefined` otherwise.
+</ResponseField>
+
+<ResponseField name="accessToken" type="string">
+  The raw JWT access token read directly from the session cookie. Use this to authenticate requests to your own backend services. See the warning below before including this value in loader return data.
+</ResponseField>
+
+### NoUserInfo (not authenticated or token expired)
+
+<ResponseField name="user" type="null">
+  Always `null`. All other fields are `undefined`. This is returned when no session cookie is present, the cookie cannot be decrypted, or the access token has expired.
+</ResponseField>
+
+## Example
+
+The following loader uses `withAuth` to protect an API resource route. It manually redirects unauthenticated users and uses the access token to call a downstream service, without returning the token to the browser.
+
+```ts
+// app/routes/api.user-data.tsx
+import { withAuth } from '@workos-inc/authkit-remix';
+import { redirect, data } from '@remix-run/node';
+import type { LoaderFunctionArgs } from '@remix-run/node';
+
+export async function loader(args: LoaderFunctionArgs) {
+  const auth = await withAuth(args);
+
+  // Manually handle the unauthenticated case.
+  if (!auth.user) {
+    throw redirect('/sign-in');
+  }
+
+  // The access token is available directly for server-side use.
+  // Use it to call a protected downstream API — do NOT return it
+  // to the client in the loader's response.
+  const response = await fetch('https://api.example.com/user-data', {
+    headers: {
+      Authorization: `Bearer ${auth.accessToken}`,
+      'X-Organization-Id': auth.organizationId ?? '',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Response('Failed to fetch user data', { status: response.status });
+  }
+
+  const userData = await response.json();
+
+  // Return only the data the client needs — not the access token.
+  return data({
+    userId: auth.user.id,
+    email: auth.user.email,
+    organizationId: auth.organizationId ?? null,
+    userData,
+  });
+}
+```
+
+<Warning>
+  `withAuth` does **not** refresh expired tokens. When the access token has expired, `withAuth` returns `{ user: null }` and logs a warning to the server console. To ensure tokens are refreshed automatically, use `authkitLoader` in a parent or root route. Child routes that call `withAuth` will always see a fresh, valid token as long as a parent route is running `authkitLoader`.
+</Warning>
+
+<Warning>
+  Be careful about including `accessToken` in your loader's return value. Remix serialises loader data and sends it to the browser — if you return `accessToken` directly, it will be visible to the client in the `__remixLoaderData` payload and any subsequent `useLoaderData()` calls. Use `accessToken` only for server-side requests and omit it from the data you return to the client.
+</Warning>

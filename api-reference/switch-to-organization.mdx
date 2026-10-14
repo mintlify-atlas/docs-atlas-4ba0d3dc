@@ -1,0 +1,186 @@
+---
+title: "switchToOrganization — Change the Active WorkOS Organization"
+sidebarTitle: "switchToOrganization"
+description: "switchToOrganization refreshes the session token for a different WorkOS organization and updates the session cookie, with automatic re-auth for SSO and MFA requirements."
+---
+
+`switchToOrganization` exchanges the current session's refresh token for a new access token scoped to a different WorkOS organization, then commits the updated session to the encrypted cookie. When the target organization requires additional authentication steps — such as SSO enforcement (`sso_required`) or MFA enrollment (`mfa_enrollment`) — the function automatically initiates a new PKCE authorization flow and redirects the user to AuthKit to complete those requirements. Always call `switchToOrganization` from a server-side Remix action; never expose organization-switching logic to the client alone.
+
+## Import
+
+```typescript
+import { switchToOrganization } from '@workos-inc/authkit-remix';
+```
+
+## Signature
+
+```typescript
+switchToOrganization(
+  request: Request,
+  organizationId: string,
+  options?: { returnTo?: string }
+): Promise<Response | DataWithResponseInit<{ success: true; auth: AuthorizedData } | { success: false; error: string }>>
+```
+
+## Parameters
+
+<ParamField path="request" type="Request" required>
+  The incoming Remix `Request` object. Used to read the existing session cookie and to set the correct security attributes on the updated session cookie.
+</ParamField>
+
+<ParamField path="organizationId" type="string" required>
+  The WorkOS organization ID to switch the session to (e.g. `"org_01HQZJ..."`). The user must already be a member of this organization in WorkOS.
+</ParamField>
+
+<ParamField path="options.returnTo" type="string" optional>
+  A same-origin pathname to redirect the user to after the organization switch completes (e.g. `"/org/dashboard"`). The value is sanitized to a same-origin pathname — absolute URLs, protocol-relative paths, and other redirect vectors are rejected and replaced with `"/"`. When provided, `switchToOrganization` returns a redirect `Response`; without it, the function returns a data response with the updated `auth` payload.
+</ParamField>
+
+## Return value
+
+`switchToOrganization` has two return shapes depending on whether `returnTo` is provided.
+
+### With `returnTo`
+
+Returns a `Response` redirect to the specified pathname with an updated `Set-Cookie` header:
+
+```typescript
+// Returns: Response (302 redirect to returnTo)
+```
+
+### Without `returnTo`
+
+Returns a `DataWithResponseInit` object carrying the updated auth data and an updated `Set-Cookie` header. The data shape on success is:
+
+<ResponseField name="success" type="true">
+  Indicates the organization switch succeeded.
+</ResponseField>
+
+<ResponseField name="auth" type="AuthorizedData">
+  The updated authentication data for the new organization context. Contains the following fields:
+
+  <Expandable title="AuthorizedData fields">
+    <ResponseField name="auth.user" type="User">
+      The authenticated WorkOS `User` object, including `id`, `email`, `firstName`, `lastName`, and profile fields.
+    </ResponseField>
+
+    <ResponseField name="auth.sessionId" type="string">
+      The WorkOS session ID (`sid` claim from the access token). Use this to identify the session for server-side operations.
+    </ResponseField>
+
+    <ResponseField name="auth.organizationId" type="string | null">
+      The ID of the newly active organization, or `null` if the token is not scoped to an organization.
+    </ResponseField>
+
+    <ResponseField name="auth.role" type="string | null">
+      The user's primary role within the organization, or `null` if no role is assigned.
+    </ResponseField>
+
+    <ResponseField name="auth.roles" type="string[] | null">
+      All roles assigned to the user within the organization, or `null` if none are assigned.
+    </ResponseField>
+
+    <ResponseField name="auth.permissions" type="string[]">
+      The list of permission keys granted to the user in the organization. Empty array when no permissions are granted.
+    </ResponseField>
+
+    <ResponseField name="auth.entitlements" type="string[]">
+      The list of entitlement keys active for the user in the organization. Empty array when no entitlements are active.
+    </ResponseField>
+
+    <ResponseField name="auth.impersonator" type="Impersonator | null">
+      When a WorkOS admin is impersonating this user, contains `{ email: string; reason: string | null }`. Otherwise `null`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+On failure (non-redirect errors), the data shape is:
+
+<ResponseField name="success" type="false">
+  Indicates the organization switch failed.
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  A human-readable error message describing the failure. The response status is `400`.
+</ResponseField>
+
+## Automatic re-authentication
+
+If the target organization enforces SSO (`sso_required`) or MFA enrollment (`mfa_enrollment`), `switchToOrganization` catches the error from WorkOS, generates a new PKCE authorization URL scoped to that organization, and **throws a redirect** to AuthKit. The redirect carries the PKCE flow cookie headers. When you call `switchToOrganization` in a `try/catch`, re-throw any `Response` with status `302`:
+
+```typescript
+try {
+  return await switchToOrganization(request, organizationId);
+} catch (error) {
+  if (error instanceof Response && error.status === 302) {
+    throw error; // propagate the AuthKit redirect
+  }
+  throw error;
+}
+```
+
+In practice, because `switchToOrganization` is called from a Remix action and the automatic re-auth redirect is thrown (not returned), Remix will propagate it correctly as long as you do not swallow all exceptions.
+
+## Examples
+
+### Redirect after switching
+
+```typescript
+// app/routes/org.$orgId.switch.ts
+import type { ActionFunctionArgs } from '@remix-run/node';
+import { switchToOrganization } from '@workos-inc/authkit-remix';
+
+export async function action({ request, params }: ActionFunctionArgs) {
+  const { orgId } = params;
+
+  // Switches to the organization and redirects to the org dashboard.
+  // If SSO or MFA is required, automatically redirects to AuthKit.
+  return await switchToOrganization(request, orgId, {
+    returnTo: `/orgs/${orgId}/dashboard`,
+  });
+}
+```
+
+### Return updated auth data without redirecting
+
+```typescript
+// app/routes/org.switch.ts
+import type { ActionFunctionArgs } from '@remix-run/node';
+import { switchToOrganization } from '@workos-inc/authkit-remix';
+import { useActionData } from '@remix-run/react';
+
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const organizationId = formData.get('organizationId') as string;
+
+  // Without returnTo, returns { success, auth } data with updated cookie.
+  return await switchToOrganization(request, organizationId);
+}
+
+export default function SwitchOrgPage() {
+  const result = useActionData<typeof action>();
+
+  if (result && !result.success) {
+    return <p>Error: {result.error}</p>;
+  }
+
+  if (result?.success) {
+    return <p>Now acting as organization: {result.auth.organizationId}</p>;
+  }
+
+  return (
+    <form method="post">
+      <input name="organizationId" placeholder="org_..." />
+      <button type="submit">Switch organization</button>
+    </form>
+  );
+}
+```
+
+<Note>
+  `returnTo` is sanitized to a same-origin pathname before the redirect is issued. Absolute URLs, protocol-relative paths (`//example.com`), backslash-prefixed paths, CRLF sequences, and URL-encoded bypasses are all rejected and replaced with `"/"`. This prevents `switchToOrganization` from being used as an open redirect vector even when `returnTo` originates from user-controlled input.
+</Note>
+
+<Warning>
+  Always call `switchToOrganization` in a server-side Remix action — never expose organization-switching logic to the client alone. The function reads and writes the encrypted HttpOnly session cookie, which is inaccessible to browser JavaScript. Performing the switch server-side ensures the new session token is committed atomically and the old token is not left in an inconsistent state.
+</Warning>

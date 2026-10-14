@@ -1,0 +1,134 @@
+---
+title: "Implement Sign-In, Sign-Up, and Sign-Out with AuthKit"
+sidebarTitle: "Sign-In & Sign-Out"
+description: "Create dedicated sign-in and sign-up routes using getSignInUrl and getSignUpUrl, and implement sign-out with the signOut function to end WorkOS sessions."
+---
+
+Authentication entry points in AuthKit Remix are handled through three simple helpers: `getSignInUrl`, `getSignUpUrl`, and `signOut`. Each one manages the state required for a secure OAuth flow — generating PKCE parameters, setting the appropriate cookies, and redirecting users to and from WorkOS AuthKit. Creating dedicated Remix routes for these operations keeps the login window short and ensures PKCE cookies are properly scoped.
+
+## Sign-In Route
+
+Create a dedicated `app/routes/sign-in.ts` loader that calls `getSignInUrl` and immediately redirects the user. `getSignInUrl` returns `{ url, headers }` — **both must be forwarded** on the redirect response. The `headers` object contains `Set-Cookie` values that store the encrypted PKCE verifier; omitting them will cause the callback to fail.
+
+```typescript
+// app/routes/sign-in.ts
+import { redirect, type LoaderFunctionArgs } from '@remix-run/node';
+import { getSignInUrl } from '@workos-inc/authkit-remix';
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const { url, headers } = await getSignInUrl(undefined, request);
+  return redirect(url, { headers });
+}
+```
+
+Pass `returnPathname` as the first argument to control where users land after a successful authentication:
+
+```typescript
+export async function loader({ request }: LoaderFunctionArgs) {
+  const { url, headers } = await getSignInUrl('/dashboard', request);
+  return redirect(url, { headers });
+}
+```
+
+Always pass the incoming `request` as the second argument so the SDK can read the current cookies, prune abandoned flow cookies, and set correct cookie security attributes based on the public request protocol.
+
+## Sign-Up Route
+
+The sign-up route follows the same pattern using `getSignUpUrl`:
+
+```typescript
+// app/routes/sign-up.ts
+import { redirect, type LoaderFunctionArgs } from '@remix-run/node';
+import { getSignUpUrl } from '@workos-inc/authkit-remix';
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const { url, headers } = await getSignUpUrl(undefined, request);
+  return redirect(url, { headers });
+}
+```
+
+## Linking to Sign-In and Sign-Up
+
+Link to the dedicated routes with ordinary `<a>` elements or `<Link reloadDocument>`. The `reloadDocument` prop ensures Remix performs a full page navigation instead of a client-side transition, which guarantees the loader runs on the server.
+
+```tsx
+import { Link } from '@remix-run/react';
+
+export default function Nav() {
+  return (
+    <nav>
+      {/* Plain anchor — always works */}
+      <a href="/sign-in">Log in</a>
+
+      {/* Remix Link with reloadDocument */}
+      <Link reloadDocument to="/sign-up">
+        Sign up
+      </Link>
+    </nav>
+  );
+}
+```
+
+<Warning>
+  Do **not** use Remix's `prefetch` prop on links to sign-in or sign-up routes. Prefetching fires the loader in the background, which starts the 10-minute PKCE login window before the user has chosen to authenticate. This leads to wasted flow cookies and can cause failures for users who sign in later.
+</Warning>
+
+## Sign-Out
+
+Call `signOut` inside a Remix `action` to end the session and redirect the user. It destroys the encrypted session cookie and calls the WorkOS logout endpoint, which invalidates the server-side session.
+
+```typescript
+// app/routes/_index.tsx
+import { type ActionFunctionArgs } from '@remix-run/node';
+import { Form } from '@remix-run/react';
+import { signOut } from '@workos-inc/authkit-remix';
+
+export async function action({ request }: ActionFunctionArgs) {
+  return await signOut(request);
+}
+
+export default function HomePage() {
+  return (
+    <Form method="post">
+      <button type="submit">Sign out</button>
+    </Form>
+  );
+}
+```
+
+### Optional `returnTo` Parameter
+
+Pass `returnTo` to redirect the user to a specific URL after sign-out. Allowed values must be configured in the WorkOS Dashboard under **Logout Redirects**.
+
+```typescript
+export async function action({ request }: ActionFunctionArgs) {
+  return await signOut(request, { returnTo: 'https://example.com' });
+}
+```
+
+## Migration Notes
+
+<Warning>
+  **`getSignInUrl` and `getSignUpUrl` now return `{ url, headers }`, not a plain string.** If you were using them as `const url = await getSignInUrl()`, update your code to destructure both values and forward the headers on your redirect response. Returning just the URL will cause the callback to fail because the PKCE cookie won't be set.
+</Warning>
+
+<Warning>
+  Never serialize the result of `getSignInUrl` or `getSignUpUrl` — especially its `headers` — into loader data sent to the browser. Cookie headers in JSON data are not interpreted by the browser and will leak sensitive cookie values into the client bundle.
+</Warning>
+
+Key changes to adopt:
+
+<Steps>
+  <Step title="Create dedicated sign-in and sign-up routes">
+    Move URL generation out of shared loaders and into standalone `app/routes/sign-in.ts` and `app/routes/sign-up.ts` files. This starts the 10-minute login window only when the user actively navigates to sign in.
+  </Step>
+  <Step title="Pass the incoming request">
+    Always pass `request` as the second argument to `getSignInUrl` / `getSignUpUrl`. This enables cookie pruning and correct `Secure` attribute detection behind TLS-terminating proxies.
+  </Step>
+  <Step title="Forward all headers on the redirect">
+    Spread `headers` into the Remix `redirect()` call: `return redirect(url, { headers })`. The headers may contain multiple `Set-Cookie` values including deletions for abandoned flows.
+  </Step>
+  <Step title="Deploy initiation and callback together">
+    Old in-flight sign-ins that started against an old deployment will fail at the new callback because the PKCE cookie was signed with a different password or origin. Users must restart the flow. Existing authenticated sessions are unaffected.
+  </Step>
+</Steps>

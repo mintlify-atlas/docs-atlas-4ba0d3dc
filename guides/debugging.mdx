@@ -1,0 +1,212 @@
+---
+title: "Debug AuthKit Remix Authentication Issues"
+sidebarTitle: "Debugging"
+description: "Enable debug logging in authkitLoader, inspect configuration with getConfig, and troubleshoot common AuthKit Remix issues like missing cookies and token refresh failures."
+---
+
+Most authentication problems in AuthKit Remix fall into a small set of predictable categories: misconfigured cookies, missing PKCE state, token refresh failures, or protocol mismatches behind a proxy. This guide covers the built-in debug tooling and walks through the most common issues and their solutions.
+
+## Enable Debug Logging
+
+Pass `debug: true` to `authkitLoader` to turn on verbose server-side logging. Debug output is written to the server console (never sent to the browser) and covers:
+
+- Session validity checks (whether the current access token passes JWT verification)
+- Token refresh attempts, including the last 10 characters of the old and new tokens
+- Cookie operations (reading, writing, and destroying the session cookie)
+- Redirect decisions when `ensureSignedIn` is active
+
+**Simple usage:**
+
+```typescript
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, { debug: true });
+```
+
+**With a custom loader function** — pass options as the third argument:
+
+```typescript
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { authkitLoader } from '@workos-inc/authkit-remix';
+
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(
+    args,
+    async ({ auth }) => {
+      return { foo: 'bar' };
+    },
+    { debug: true },
+  );
+```
+
+## Inspect Configuration
+
+The `getFullConfig` function returns the resolved configuration object — the merged result of programmatic settings, environment variables, and defaults:
+
+```typescript
+import { getFullConfig } from '@workos-inc/authkit-remix';
+
+// Call server-side only, e.g. in a health-check or startup log
+const config = getFullConfig();
+console.log(config);
+```
+
+<Warning>
+  Never log `getFullConfig()` output in production or include it in responses sent to the browser. The returned object contains your `apiKey` and `cookiePassword`, which are sensitive secrets. Use this function only in local development or controlled server-side diagnostics.
+</Warning>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Session cookie not found">
+    **Symptom:** `authkitLoader` logs a warning like `No session cookie "wos-session" found` on every request, even after the user has signed in. The `user` field is always `null`.
+
+    **Cause:** The session cookie is written by the root route's response headers. If `authkitLoader` is only used in a child route (not the root layout or root loader), child routes receive the request before the root can set or refresh the cookie.
+
+    **Fix:** Call `authkitLoader` in your root loader so the session cookie is read and refreshed on every request:
+
+    ```typescript
+    // app/root.tsx
+    import type { LoaderFunctionArgs } from '@remix-run/node';
+    import { authkitLoader } from '@workos-inc/authkit-remix';
+
+    export const loader = (args: LoaderFunctionArgs) => authkitLoader(args);
+    ```
+
+    Child routes can then call `authkitLoader` (or `withAuth`) independently — the cookie is already present because the root loader ran first.
+  </Accordion>
+
+  <Accordion title="Token refresh fails">
+    **Symptom:** Users are unexpectedly signed out, or `authkitLoader` redirects to AuthKit mid-session.
+
+    **Cause:** The access token expired and the refresh attempt failed. There are two classes of failure:
+
+    - **Transient failures** (network errors, timeouts, HTTP 408/429/5xx): the refresh token is still valid. The existing session is preserved and the refresh will be retried on the next request.
+    - **Terminal failures** (HTTP 400 `invalid_grant`, HTTP 401, unrecognized errors): the refresh token is dead. The session is destroyed and the user is redirected to sign in.
+
+    **Fix:** Use the `onSessionRefreshError` callback to observe failures and take custom action — for example, logging to an error tracker or showing a maintenance banner:
+
+    ```typescript
+    export const loader = (args: LoaderFunctionArgs) =>
+      authkitLoader(args, {
+        onSessionRefreshError: ({ error, isTransient, request }) => {
+          if (!isTransient) {
+            // Terminal — session will be destroyed after this callback returns.
+            console.error('Session terminated due to refresh failure:', error);
+          } else {
+            // Transient — session is preserved; log but don't alarm.
+            console.warn('Transient token refresh failure:', error);
+          }
+        },
+      });
+    ```
+
+    Return a `Response` from `onSessionRefreshError` to override the default redirect behavior.
+  </Accordion>
+
+  <Accordion title="Callback fails with missing state / missing auth cookie">
+    **Symptom:** The callback route throws `Missing auth cookie. Forward the headers returned by getSignInUrl/getSignUpUrl.` or `Invalid or expired auth cookie / OAuth state mismatch`.
+
+    **Cause:** The PKCE cookie was not sent to the browser when the login flow started. This happens when:
+
+    - `getSignInUrl` / `getSignUpUrl` is called but the returned `headers` are not forwarded on the redirect response.
+    - The result of `getSignInUrl` / `getSignUpUrl` is serialized into loader JSON data instead of being used in a redirect.
+    - The sign-in URL is generated on a different origin or with a different cookie password than the callback.
+
+    **Fix:** Always destructure `{ url, headers }` and pass `headers` to `redirect()`:
+
+    ```typescript
+    // app/routes/sign-in.ts
+    import { redirect, type LoaderFunctionArgs } from '@remix-run/node';
+    import { getSignInUrl } from '@workos-inc/authkit-remix';
+
+    export async function loader({ request }: LoaderFunctionArgs) {
+      const { url, headers } = await getSignInUrl(undefined, request);
+      return redirect(url, { headers });
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Cookie size exceeded / HTTP 431 Request Header Fields Too Large">
+    **Symptom:** Requests fail with HTTP 431 or the browser silently drops cookies. Debug logs show many `wos-auth-verifier-*` cookies.
+
+    **Cause:** Each call to `getSignInUrl` or `getSignUpUrl` creates a separate PKCE cookie (one per flow, to support concurrent tabs). If a user opens the sign-in page five or more times without completing a flow, the accumulated cookies can exceed browser or server limits.
+
+    **Fix:** The SDK automatically purges older flow cookies when five or more are present — but only if the incoming `request` is passed to `getSignInUrl` / `getSignUpUrl`. Always pass `request`:
+
+    ```typescript
+    const { url, headers } = await getSignInUrl(undefined, request);
+    ```
+
+    Signing out also clears all outstanding flow cookies. If you see this issue in a route that never signs out, check whether `request` is being forwarded correctly.
+  </Accordion>
+
+  <Accordion title="Protocol mismatch behind a TLS-terminating proxy">
+    **Symptom:** The session or PKCE cookie is set without the `Secure` attribute in production, or cookies set in production are never sent back because the `Secure` flag doesn't match the actual protocol.
+
+    **Cause:** The Remix server receives requests over plain HTTP from the load balancer, so `request.url` has an `http://` scheme. The SDK uses this URL to determine whether to set `Secure` on cookies. Without a forwarded protocol header, cookies intended for HTTPS are set without `Secure`, or vice versa.
+
+    **Fix:** Configure your proxy to forward the `X-Forwarded-Proto` header with the client-facing protocol:
+
+    ```
+    X-Forwarded-Proto: https
+    ```
+
+    The SDK reads the first value of this header and uses it as the effective protocol for cookie security attributes. Ensure your proxy **overwrites** (not appends) this header with the trusted value so that it cannot be spoofed by clients.
+  </Accordion>
+</AccordionGroup>
+
+## Session Refresh Callbacks
+
+`authkitLoader` exposes two lifecycle callbacks for observing token refresh events. Both are optional and can be passed in the options object.
+
+### `onSessionRefreshError`
+
+Called whenever a token refresh attempt fails. Receives a `RefreshErrorOptions` object:
+
+| Field | Type | Description |
+|---|---|---|
+| `error` | `unknown` | The original error thrown during refresh |
+| `request` | `Request` | The incoming Remix request |
+| `sessionData` | `SessionData` | The raw Remix session data at the time of failure |
+| `isTransient` | `boolean` | `true` when the failure is transient (network, 429, 5xx); `false` when terminal |
+
+When `isTransient` is `true`, the existing session is preserved and no redirect occurs (unless you return a `Response` from the callback). When `isTransient` is `false`, the session is destroyed and the user is redirected to AuthKit after the callback returns.
+
+```typescript
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, {
+    onSessionRefreshError: async ({ error, isTransient, request, sessionData }) => {
+      await logToMonitoring({ error, isTransient, url: request.url });
+
+      if (!isTransient) {
+        // Optionally return a custom Response instead of the default AuthKit redirect
+        // return redirect('/maintenance');
+      }
+    },
+  });
+```
+
+### `onSessionRefreshSuccess`
+
+Called after a token is successfully refreshed. Receives a `RefreshSuccessOptions` object:
+
+| Field | Type | Description |
+|---|---|---|
+| `accessToken` | `string` | The newly issued access token |
+| `user` | `User` | The current WorkOS user object |
+| `impersonator` | `Impersonator \| null` | Set when a WorkOS admin is impersonating |
+| `organizationId` | `string \| null` | The active organization after refresh |
+
+Use this callback to synchronize token-dependent state — for example, invalidating a downstream token cache or logging session activity:
+
+```typescript
+export const loader = (args: LoaderFunctionArgs) =>
+  authkitLoader(args, {
+    onSessionRefreshSuccess: async ({ accessToken, user, organizationId }) => {
+      await invalidateTokenCache(user.id);
+    },
+  });
+```
